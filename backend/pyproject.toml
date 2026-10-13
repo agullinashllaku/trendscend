@@ -63,3 +63,7 @@ skips = ["B101"]  # assert — handled by ruff S101
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trendscend"]
+
+[tool.pip-audit]
+# Add CVE IDs here after review to suppress known false positives, e.g.:
+# ignore-vulns = ["CVE-2023-12345"]

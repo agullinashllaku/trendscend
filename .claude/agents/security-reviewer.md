@@ -21,7 +21,7 @@ You are reviewing code changes against PLAN.md Section 10 (Security & compliance
 
 **3. Row-Level Security (BLOCKER if missing)**
 - Every new user-owned table must have a `user_id` column with an RLS policy
-- The FastAPI request handler must call `SET LOCAL app.current_user = '<user_id>'` before any query
+- The FastAPI request handler must call `await conn.execute("SELECT set_config('app.current_user', $1, true)", user_id)` (bound parameter — never f-string interpolation) before any query
 - Flag any raw SQL using `SECURITY DEFINER` without explicit RLS enforcement
 
 **4. Prompt injection (BLOCKER if external text concatenated directly)**

@@ -53,7 +53,7 @@ async def test_rls_blocks_cross_user_access(
     user_b_RESOURCE_id: str,
 ) -> None:
     """RLS must return 0 rows for user A querying user B's RESOURCE."""
-    await db_conn.execute(f"SET LOCAL app.current_user = '{user_a_id}'")
+    await db_conn.execute("SELECT set_config('app.current_user', $1, true)", user_a_id)
     rows = await db_conn.fetch(
         "SELECT id FROM RESOURCE_TABLE WHERE id = $1",
         user_b_RESOURCE_id,
