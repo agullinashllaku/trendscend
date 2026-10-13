@@ -1,4 +1,5 @@
 """Schema validation tests — written before schema implementation (TDD)."""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
@@ -25,6 +26,7 @@ BOT_ID = uuid4()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def make_candle() -> OHLCV:
     return OHLCV(
@@ -71,6 +73,7 @@ def make_signal() -> Signal:
 
 # ── MarketSnapshot ────────────────────────────────────────────────────────────
 
+
 class TestMarketSnapshot:
     def test_valid_snapshot(self) -> None:
         snap = make_snapshot()
@@ -96,6 +99,7 @@ class TestMarketSnapshot:
 
 
 # ── RegimeLabel ───────────────────────────────────────────────────────────────
+
 
 class TestRegimeLabel:
     def test_all_regime_types(self) -> None:
@@ -132,6 +136,7 @@ class TestRegimeLabel:
 
 
 # ── NewsEvent / NewsState ─────────────────────────────────────────────────────
+
 
 class TestNewsEvent:
     def test_valid_event(self) -> None:
@@ -242,6 +247,7 @@ class TestNewsEvent:
 
 # ── SmartMoneyState ───────────────────────────────────────────────────────────
 
+
 class TestSmartMoneyState:
     def test_valid_state(self) -> None:
         state = SmartMoneyState(
@@ -271,6 +277,7 @@ class TestSmartMoneyState:
 
 
 # ── Signal / TradeProposal ────────────────────────────────────────────────────
+
 
 class TestSignal:
     def test_valid_signal(self) -> None:
@@ -340,6 +347,7 @@ class TestSignal:
 
 # ── RiskDecision ──────────────────────────────────────────────────────────────
 
+
 class TestRiskDecision:
     def test_approved_decision(self) -> None:
         decision = RiskDecision(
@@ -389,6 +397,7 @@ class TestRiskDecision:
 
 # ── RiskStyle ─────────────────────────────────────────────────────────────────
 
+
 class TestRiskStyle:
     def test_all_risk_style_values(self) -> None:
         assert RiskStyle.CONSERVATIVE == "conservative"
@@ -398,6 +407,7 @@ class TestRiskStyle:
 
 
 # ── DecisionRecord ────────────────────────────────────────────────────────────
+
 
 class TestDecisionRecord:
     def test_minimal_record(self) -> None:
