@@ -16,7 +16,7 @@ from trendscend.schemas.news import (
     NewsState,
 )
 from trendscend.schemas.regime import RegimeLabel, RegimeType
-from trendscend.schemas.risk import RiskDecision, RiskOutcome
+from trendscend.schemas.risk import RiskDecision, RiskOutcome, RiskStyle
 from trendscend.schemas.signals import Signal, TradeAction, TradeProposal
 from trendscend.schemas.smart_money import SmartMoneyAssetState, SmartMoneyState
 
@@ -385,6 +385,16 @@ class TestRiskDecision:
                 checks_run=["check"],
                 decided_at=NOW,
             )
+
+
+# ── RiskStyle ─────────────────────────────────────────────────────────────────
+
+class TestRiskStyle:
+    def test_all_risk_style_values(self) -> None:
+        assert RiskStyle.CONSERVATIVE == "conservative"
+        assert RiskStyle.BALANCED == "balanced"
+        assert RiskStyle.AGGRESSIVE == "aggressive"
+        assert len(list(RiskStyle)) == 3
 
 
 # ── DecisionRecord ────────────────────────────────────────────────────────────
