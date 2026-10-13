@@ -31,7 +31,6 @@ line-length = 100
 select = ["E", "F", "I", "N", "W", "UP", "B", "S"]
 ignore = [
     "S101",  # allow assert in tests
-    "S311",  # allow random for non-crypto use
 ]
 
 [tool.ruff.lint.per-file-ignores]
