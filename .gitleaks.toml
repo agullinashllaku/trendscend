@@ -1,0 +1,15 @@
+title = "trendscend gitleaks config"
+
+[allowlist]
+  description = "Allow placeholder values in example and doc files"
+  paths = [
+    '''.env\.example$''',
+    '''PLAN\.md$''',
+    '''AGENTS_AND_CHOICES\.md$''',
+    '''docs/''',
+  ]
+  regexes = [
+    '''changeme_in_dev''',
+    '''your-key-here''',
+    '''generate-with-python-secrets-module''',
+  ]
