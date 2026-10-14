@@ -42,5 +42,8 @@ gitleaks-report.json
 .DS_Store
 Thumbs.db
 
+# Research data cache (large downloaded files)
+research/data/
+
 # Worktrees
 .worktrees/
