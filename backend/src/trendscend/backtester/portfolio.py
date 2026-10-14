@@ -82,9 +82,11 @@ class Portfolio:
             self._open_entries[symbol].append((fill_price, size, fee, timestamp))
 
         elif side == "sell":
+            current = self.positions.get(symbol, Decimal("0"))
+            if size > current:
+                raise ValueError(f"Cannot sell {size} of {symbol}: current position is {current}")
             self.cash += notional - fee
             self.fill_count += 1
-            current = self.positions.get(symbol, Decimal("0"))
             new_pos = current - size
             self.positions[symbol] = new_pos if new_pos > Decimal("0") else Decimal("0")
 

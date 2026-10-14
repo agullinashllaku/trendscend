@@ -102,7 +102,7 @@ class BacktestEngine:
             target_exposure: float = signal.target_exposure
 
             if target_exposure != current_exposure:
-                self._rebalance(
+                filled = self._rebalance(
                     portfolio=portfolio,
                     fee_model=fee_model,
                     symbol=symbol,
@@ -111,7 +111,8 @@ class BacktestEngine:
                     target_exposure=target_exposure,
                     initial_capital=initial_capital,
                 )
-                current_exposure = target_exposure
+                if filled:
+                    current_exposure = target_exposure
 
             portfolio.mark_to_market({symbol: current_bar.close}, current_bar.timestamp)
 
@@ -141,11 +142,14 @@ class BacktestEngine:
         current_exposure: float,
         target_exposure: float,
         initial_capital: Decimal,
-    ) -> None:
+    ) -> bool:
         """Adjust the portfolio from *current_exposure* to *target_exposure*.
 
         Fill price is ``current_bar.open`` with slippage applied.
         Uses taker fee.  For spot-only MVP we only go long (exposure >= 0).
+
+        Returns:
+            True if a fill was executed, False otherwise.
         """
         going_long = target_exposure > current_exposure
 
@@ -165,28 +169,29 @@ class BacktestEngine:
             current_position_value = portfolio.positions.get(symbol, Decimal("0")) * fill_price
             delta_value = target_value - current_position_value
             if delta_value <= Decimal("0"):
-                return
+                return False
             size = delta_value / fill_price
             if size <= Decimal("0"):
-                return
+                return False
             fee = fee_model.compute_fee(size, fill_price, "taker")
             # Check we can afford it; trim if needed
             affordable = portfolio.cash - fee
             if affordable <= Decimal("0"):
-                return
+                return False
             if size * fill_price > affordable:
                 size = affordable / fill_price
                 fee = fee_model.compute_fee(size, fill_price, "taker")
             try:
                 portfolio.apply_fill(symbol, "buy", size, fill_price, fee, current_bar.timestamp)
+                return True
             except InsufficientFundsError:
-                pass  # can't buy — skip
+                return False  # can't buy — skip
 
         else:
             # Sell down to target exposure
             current_pos = portfolio.positions.get(symbol, Decimal("0"))
             if current_pos <= Decimal("0"):
-                return
+                return False
             if target_exposure <= 0.0:
                 # Close entire position
                 size = current_pos
@@ -200,9 +205,10 @@ class BacktestEngine:
                 size = min(size, current_pos)
 
             if size <= Decimal("0"):
-                return
+                return False
             fee = fee_model.compute_fee(size, fill_price, "taker")
             portfolio.apply_fill(symbol, "sell", size, fill_price, fee, current_bar.timestamp)
+            return True
 
     def _compute_metrics(
         self,
@@ -255,6 +261,10 @@ class BacktestEngine:
         sharpe = (mean_r / std_r * math.sqrt(periods_per_year)) if std_r > 0 else 0.0
 
         # ── Sortino ───────────────────────────────────────────────────────────
+        # Note: downside is std(neg_returns) — variance centred on mean of negative
+        # returns with Bessel correction (n-1), NOT the standard semi-deviation
+        # sqrt(mean(r^2 for r < 0)). This formula matches some third-party tools
+        # but differs from others; verify before comparing external results.
         neg_returns = [r for r in returns if r < 0]
         if len(neg_returns) >= 2:
             n_neg = len(neg_returns)
