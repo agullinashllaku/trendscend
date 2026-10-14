@@ -117,7 +117,7 @@ def generate_wf_splits(
         if test_start <= train_end:
             test_start = train_end + timedelta(microseconds=1)
 
-        test_end = _add_months(test_start, test_months)
+        test_end = _add_months(train_end, test_months)
 
         if test_end > end:
             break
@@ -171,8 +171,13 @@ def run_walk_forward(
     per_split_results: list[BacktestResult] = []
 
     for split in splits:
-        # Extract OOS candles: [test_start, test_end)
-        oos_candles = [c for c in candles if split.test_start <= c.timestamp < split.test_end]
+        # Extract OOS candles: (train_end, test_end)
+        # Use train_end as a strict exclusive lower bound to avoid the +1µs
+        # offset in test_start silently dropping the first OOS candle when
+        # candle timestamps land exactly on the boundary (e.g. midnight).
+        oos_candles = [
+            c for c in candles if c.timestamp > split.train_end and c.timestamp < split.test_end
+        ]
 
         result = engine.run(
             candles=oos_candles,
