@@ -1,9 +1,9 @@
 @AGENTS.md
 
 # Phase status
-- **Phase 0**: COMPLETE (gate passed 2026-10-13). PR #1 open: `phase-0-foundations` → `main` on GitHub. Merge once CI is green.
+- **Phase 0**: COMPLETE. PR #1 merged to `main` on GitHub (2026-10-14). All CI green.
 - **Next**: Phase 1 — market data ingestion (A1 agent), event-driven backtester, baseline strategies. Plan: `PLAN.md`. SDD ledger: `.sdd/progress.md`. Start by reading PLAN.md Phase 1 section and invoking `superpowers:subagent-driven-development`.
-- **Local branch**: `main` is at `e3697fc`. `phase-0-foundations` branch tracks the PR.
+- **Local branch**: `main` is ahead of remote — pull before starting Phase 1 (`git pull origin main`).
 
 # Claude Code specifics
 - Plugins: superpowers, security-guidance, code-review, pr-review-toolkit, feature-dev, pyright-lsp, typescript-lsp, commit-commands, claude-md-management, frontend-design, Trail of Bits skills, codex (openai/codex-plugin-cc). See PLAN.md 8.2–8.3.
