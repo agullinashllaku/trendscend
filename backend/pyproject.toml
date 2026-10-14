@@ -57,6 +57,10 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 addopts = "--cov=src --cov-report=term-missing --cov-fail-under=80"
 asyncio_mode = "auto"
+pythonpath = ["src"]
+markers = [
+    "integration: marks tests that require a live database (deselect with '-m \"not integration\"')",
+]
 
 [tool.coverage.run]
 source = ["src"]
