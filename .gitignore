@@ -41,3 +41,6 @@ gitleaks-report.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Worktrees
+.worktrees/
