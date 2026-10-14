@@ -18,3 +18,20 @@
 | .claude/settings.json hooks | ✓ |
 
 **Next phase:** Phase 1 — Market data (A1), event-driven backtester, baseline strategies.
+
+## Phase 1: Data + Backtester + Baseline Strategies
+**Status:** COMPLETE
+**Gate passed:** research/reports/phase1_strategy_comparison.md — `dca_trend` achieves ≥5pp lower max drawdown on 8/8 assets vs hold_baseline; `tsmom` and `breakout` also clear the drawdown gate.
+**Date:** 2026-10-14
+
+| Item | Status |
+|------|--------|
+| A1 Market Data client (ccxt, gap/outlier detection) | ✓ |
+| TimescaleDB candle hypertable + CandleRepository | ✓ |
+| Event-driven backtester (fees + slippage, portfolio, engine) | ✓ |
+| Strategies: hold_baseline, rebalance_core, dca_trend | ✓ |
+| Strategies: tsmom, breakout, grid_range (regime-conditional) | ✓ |
+| Walk-forward framework (12m/3m, no-overlap splits) | ✓ |
+| Phase 1 gate report in research/reports/ | ✓ |
+
+**Next phase:** Phase 2 — A2 Regime Classifier, U3 Risk Manager, paper trading.
