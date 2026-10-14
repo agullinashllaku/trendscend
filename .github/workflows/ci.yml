@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+      - name: Ruff check
+        working-directory: backend
+        run: uv run ruff check src tests
+      - name: Ruff format check
+        working-directory: backend
+        run: uv run ruff format --check src tests
+
+  typecheck:
+    name: Type check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+      - name: mypy
+        working-directory: backend
+        run: uv run mypy src
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+      - name: Run tests with coverage
+        working-directory: backend
+        run: uv run pytest --cov-fail-under=80
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: backend/coverage.xml
+          fail_ci_if_error: false
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for gitleaks
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+      - name: Bandit (Python SAST)
+        working-directory: backend
+        run: uv run bandit -r src -ll -x tests
+      - name: pip-audit (dependency vulnerabilities)
+        working-directory: backend
+        run: uv run pip-audit
+      - name: gitleaks (secret scanning)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          exit-code: "1"
+          severity: "HIGH,CRITICAL"
+          skip-dirs: ".venv,node_modules,.git"
+          ignorefile: ".trivyignore"
+
+  docker-health:
+    name: Docker stack health
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        working-directory: infra
+        run: docker compose up -d
+      - name: Wait for Postgres to be healthy
+        run: |
+          timeout 60 bash -c \
+            'until docker compose -f infra/docker-compose.yml exec -T postgres \
+              pg_isready -U trendscend -d trendscend; \
+            do sleep 2; done'
+      - name: Wait for Redis to be healthy
+        run: |
+          timeout 30 bash -c \
+            'until docker compose -f infra/docker-compose.yml exec -T redis \
+              redis-cli ping | grep -q PONG; \
+            do sleep 2; done'
+      - name: Verify TimescaleDB extension loaded
+        run: |
+          docker compose -f infra/docker-compose.yml exec -T postgres \
+            psql -U trendscend -d trendscend \
+            -c "SELECT extname FROM pg_extension WHERE extname = 'timescaledb';" \
+          | grep -q timescaledb
+      - name: Tear down
+        if: always()
+        working-directory: infra
+        run: docker compose down -v

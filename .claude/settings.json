@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys, os\nfile_path = os.environ.get('TOOL_INPUT_FILE_PATH', '')\nif not file_path or not os.path.exists(file_path):\n    sys.exit(0)\ncontent = open(file_path).read()\nblocked = ['withdraw(', '.withdraw(', 'withdrawal_enabled = True', 'transfer_out(']\nfound = [p for p in blocked if p in content]\nif found:\n    print(f'BLOCKED by hook: withdrawal-related code detected: {found}')\n    print('Per PLAN.md Section 2: the app never moves funds off an exchange.')\n    sys.exit(1)\n\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=\"${TOOL_INPUT_FILE_PATH:-}\" && echo \"$FILE\" | grep -qE \"backend/src/trendscend/(risk|execution|auth)/\" && cd /Users/agullinashllaku/Documents/trendscend/backend && uv run ruff check \"$FILE\" --quiet && echo \"[hook] ruff passed on $FILE\" || true'"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(uv *)",
+      "Bash(docker compose *)",
+      "Bash(pytest *)",
+      "Bash(ruff *)",
+      "Bash(mypy *)",
+      "Bash(mkdir *)",
+      "Bash(touch *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(pre-commit *)"
+    ]
+  }
+}
