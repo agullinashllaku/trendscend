@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+
 from trendscend.market.validator import CandleValidator, GapReport, OutlierReport
 from trendscend.schemas.market import OHLCV
 
@@ -280,3 +282,28 @@ def test_check_outliers_price_spike_1d_threshold() -> None:
     candles[3] = _make_candle(start + interval * 3, close=42000.0 * 1.55)
     outliers_55 = validator.check_outliers(candles, "BTC/USDT", "1d")
     assert any(o.reason == "price_spike" for o in outliers_55)
+
+
+# ---------------------------------------------------------------------------
+# Unknown timeframe handling
+# ---------------------------------------------------------------------------
+
+
+def test_check_gaps_raises_on_unknown_timeframe() -> None:
+    """check_gaps must raise ValueError for an unknown timeframe string."""
+    start = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+    candles = _make_hourly_series(10, start)
+
+    validator = CandleValidator()
+    with pytest.raises(ValueError, match="Unknown timeframe: '3h'"):
+        validator.check_gaps(candles, "BTC/USDT", "3h")
+
+
+def test_check_outliers_raises_on_unknown_timeframe() -> None:
+    """check_outliers must raise ValueError for an unknown timeframe string."""
+    start = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+    candles = _make_hourly_series(10, start)
+
+    validator = CandleValidator()
+    with pytest.raises(ValueError, match="Unknown timeframe: '2h'"):
+        validator.check_outliers(candles, "BTC/USDT", "2h")
