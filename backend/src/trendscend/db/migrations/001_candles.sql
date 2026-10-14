@@ -1,3 +1,5 @@
+-- SHARED REFERENCE TABLE: candles stores public market OHLCV data shared across all users.
+-- Per PLAN.md §7, only user-owned tables require user_id + RLS. No RLS needed here.
 -- Candle (OHLCV) hypertable for TimescaleDB
 CREATE TABLE IF NOT EXISTS candles (
     time        TIMESTAMPTZ    NOT NULL,

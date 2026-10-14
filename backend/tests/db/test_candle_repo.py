@@ -114,6 +114,19 @@ class TestCandleRowDataclass:
         assert row1 != row2
 
 
+class TestInsertCandlesEmptyList:
+    """Unit test for insert_candles([]) early-return guard (no DB needed)."""
+
+    @pytest.mark.asyncio
+    async def test_insert_empty_returns_zero(self) -> None:
+        """insert_candles with empty list returns 0 without DB interaction."""
+        from trendscend.db.candle_repo import insert_candles
+
+        # No DB connection needed — the function returns 0 immediately.
+        result = await insert_candles(None, [])  # type: ignore[arg-type]
+        assert result == 0
+
+
 # ---------------------------------------------------------------------------
 # Integration tests — require TEST_DATABASE_URL
 # ---------------------------------------------------------------------------
@@ -226,9 +239,9 @@ class TestCandleRepositoryIntegration:
             start=BASE_TIME - timedelta(hours=1),
             end=BASE_TIME + timedelta(hours=10),
         )
-        assert all(r.timestamp is not None for r in results)
         # Verify all returned are for binance only (fetch_candles filters)
         assert len(results) == 3
+        assert all(r.timestamp >= BASE_TIME for r in results)
 
     async def test_get_latest_candle_time_returns_none_for_unknown(self, db_conn) -> None:  # type: ignore[no-untyped-def]
         from trendscend.db.candle_repo import get_latest_candle_time
