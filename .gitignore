@@ -12,6 +12,8 @@ build/
 .ruff_cache/
 htmlcov/
 .coverage
+.coverage*
+backend/.coverage*
 coverage.xml
 
 # Node
