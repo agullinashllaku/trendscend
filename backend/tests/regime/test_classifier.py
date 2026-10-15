@@ -59,16 +59,6 @@ def make_trending_down(n: int = 200) -> list[OHLCV]:
     return make_candles(prices, spread_pct=0.002)
 
 
-def make_high_vol_chaos(n: int = 200) -> list[OHLCV]:
-    """Alternating sharp up/down moves → extreme realized vol."""
-    prices = [100.0 * (1.15 if i % 2 == 0 else 0.87) for i in range(1, n + 1)]
-    # Compound them
-    compound = [100.0]
-    for p in prices:
-        compound.append(compound[-1] * p / 100.0)
-    return make_candles(compound[:n], spread_pct=0.002)
-
-
 cfg_fast = RegimeClassifierConfig(
     adx_period=5,
     vol_period=5,
