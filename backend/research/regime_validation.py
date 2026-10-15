@@ -28,7 +28,6 @@ from trendscend.schemas.regime import RegimeType
 
 FIXTURE_PATH = Path(__file__).parent.parent / "tests/strategies/fixtures/btc_100_bars.json"
 REPORT_PATH = Path(__file__).parent.parent.parent / "research/reports/phase2_regime_validation.md"
-REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def load_bars() -> list[OHLCV]:
@@ -56,6 +55,7 @@ def next_bar_return(candles: list[OHLCV], i: int) -> float | None:
 
 
 def main() -> None:
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     candles = load_bars()
     clf = RegimeClassifier()
     cfg = RegimeClassifierConfig(

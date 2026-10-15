@@ -113,12 +113,12 @@ class TestPaperVsBacktest:
         paper_equity = float(paper_engine.portfolio.equity({symbol: candles[-1].close}))
         bt_equity = float(bt_result.final_equity)
 
-        if bt_equity > 0:
-            rel_diff = abs(paper_equity - bt_equity) / bt_equity
-            assert rel_diff <= 0.02, (
-                f"paper equity {paper_equity:.2f} differs from bt {bt_equity:.2f} "
-                f"by {rel_diff:.1%} (>2%)"
-            )
+        assert bt_equity > 0, f"backtester returned non-positive final equity: {bt_equity}"
+        rel_diff = abs(paper_equity - bt_equity) / bt_equity
+        assert rel_diff <= 0.02, (
+            f"paper equity {paper_equity:.2f} differs from bt {bt_equity:.2f} "
+            f"by {rel_diff:.1%} (>2%)"
+        )
 
     def test_decision_log_has_one_entry_per_candle(self) -> None:
         """Decision log has exactly len(candles)-1 entries."""
