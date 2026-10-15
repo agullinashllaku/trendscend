@@ -36,6 +36,16 @@ class TestFeeConstants:
         assert isinstance(SLIPPAGE_PER_SIDE, Decimal)
 
 
+class TestFeeModelValidation:
+    def test_unknown_exchange_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Unknown exchange"):
+            FeeModel(exchange_id="kraken")
+
+    def test_unknown_exchange_error_message_lists_supported(self) -> None:
+        with pytest.raises(ValueError, match="binance"):
+            FeeModel(exchange_id="kraken")
+
+
 class TestFeeModelBinance:
     def setup_method(self) -> None:
         self.model = FeeModel(exchange_id="binance")
