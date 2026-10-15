@@ -111,8 +111,7 @@ class CandleValidator:
 
         if timeframe not in TIMEFRAME_SECONDS:
             raise ValueError(
-                f"Unknown timeframe: '{timeframe}'. "
-                f"Supported: {sorted(TIMEFRAME_SECONDS.keys())}"
+                f"Unknown timeframe: '{timeframe}'. Supported: {sorted(TIMEFRAME_SECONDS.keys())}"
             )
         interval_s = TIMEFRAME_SECONDS[timeframe]
         threshold = timedelta(seconds=interval_s * 1.5)
@@ -165,8 +164,7 @@ class CandleValidator:
         """
         if timeframe not in TIMEFRAME_SECONDS:
             raise ValueError(
-                f"Unknown timeframe: '{timeframe}'. "
-                f"Supported: {sorted(TIMEFRAME_SECONDS.keys())}"
+                f"Unknown timeframe: '{timeframe}'. Supported: {sorted(TIMEFRAME_SECONDS.keys())}"
             )
 
         reports: list[OutlierReport] = []

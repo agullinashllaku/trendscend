@@ -33,7 +33,7 @@ class FeeModel:
     def __post_init__(self) -> None:
         if self.exchange_id not in TAKER_FEE:
             raise ValueError(
-                f"Unknown exchange {self.exchange_id!r}. " f"Supported: {sorted(TAKER_FEE)}"
+                f"Unknown exchange {self.exchange_id!r}. Supported: {sorted(TAKER_FEE)}"
             )
 
     def compute_fee(

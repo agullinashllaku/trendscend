@@ -76,7 +76,7 @@ def _validate_exchange(exchange_id: str) -> None:
     """Raise ValueError if the exchange is not supported."""
     if exchange_id not in SUPPORTED_EXCHANGES:
         raise ValueError(
-            f"Unsupported exchange: '{exchange_id}'. " f"Supported: {sorted(SUPPORTED_EXCHANGES)}"
+            f"Unsupported exchange: '{exchange_id}'. Supported: {sorted(SUPPORTED_EXCHANGES)}"
         )
 
 
