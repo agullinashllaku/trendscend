@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from trendscend.schemas.bot import BotRiskState
 from trendscend.schemas.decisions import DecisionRecord  # noqa: E402
 from trendscend.schemas.market import OHLCV, MarketSnapshot
 from trendscend.schemas.news import (
@@ -469,3 +470,49 @@ class TestDecisionRecord:
         json_str = record.model_dump_json()
         assert "candle_close" not in json_str  # triggered_by is news_event
         assert "news_event" in json_str
+
+
+class TestBotRiskState:
+    def _valid_state(self) -> "BotRiskState":
+        return BotRiskState(
+            bot_id=uuid4(),
+            style=RiskStyle.BALANCED,
+            allocation=Decimal("10000"),
+            current_equity=Decimal("10000"),
+            equity_peak=Decimal("10000"),
+            daily_start_equity=Decimal("10000"),
+            open_positions={},
+            trades_today=0,
+            is_paused=False,
+            is_killed=False,
+            last_updated=datetime.now(UTC),
+        )
+
+    def test_valid_state_constructs(self) -> None:
+        state = self._valid_state()
+        assert state.style == RiskStyle.BALANCED
+        assert state.allocation == Decimal("10000")
+
+    def test_open_positions_defaults_to_empty_dict(self) -> None:
+        state = self._valid_state()
+        assert state.open_positions == {}
+
+    def test_negative_allocation_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            BotRiskState(
+                bot_id=uuid4(),
+                style=RiskStyle.BALANCED,
+                allocation=Decimal("-1"),
+                current_equity=Decimal("0"),
+                equity_peak=Decimal("0"),
+                daily_start_equity=Decimal("0"),
+                trades_today=0,
+                is_paused=False,
+                is_killed=False,
+                last_updated=datetime.now(UTC),
+            )
+
+    def test_negative_trades_today_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            state = self._valid_state()
+            BotRiskState(**{**state.model_dump(), "trades_today": -1})
