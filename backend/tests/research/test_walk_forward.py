@@ -80,9 +80,9 @@ class TestGenerateWfSplits:
         end = datetime(2023, 1, 1, tzinfo=UTC)  # 2 years
         splits = generate_wf_splits(start, end, train_months=12, test_months=3)
 
-        assert (
-            len(splits) >= 3
-        ), f"Expected >= 3 splits for 2 years 12m/3m, got {len(splits)}: {splits}"
+        assert len(splits) >= 3, (
+            f"Expected >= 3 splits for 2 years 12m/3m, got {len(splits)}: {splits}"
+        )
 
     def test_three_years_split_count(self) -> None:
         """3 years, 12m train, 3m test → 4 OOS windows (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec)."""
@@ -101,9 +101,9 @@ class TestGenerateWfSplits:
         for split in splits:
             duration_days = (split.test_end - split.test_start).days
             # 3 months ≈ 89–92 days; allow ±2 days tolerance for month boundaries
-            assert (
-                87 <= duration_days <= 94
-            ), f"OOS window duration {duration_days} days is outside 87–94 range"
+            assert 87 <= duration_days <= 94, (
+                f"OOS window duration {duration_days} days is outside 87–94 range"
+            )
 
     def test_splits_step_forward_by_test_months(self) -> None:
         """Consecutive splits' train_start should differ by test_months."""
@@ -116,9 +116,9 @@ class TestGenerateWfSplits:
             curr_start = splits[i].train_start
             # Should differ by approximately 3 months (89–94 days)
             diff_days = (curr_start - prev_start).days
-            assert (
-                87 <= diff_days <= 94
-            ), f"Consecutive train_starts differ by {diff_days} days, expected ~91"
+            assert 87 <= diff_days <= 94, (
+                f"Consecutive train_starts differ by {diff_days} days, expected ~91"
+            )
 
     def test_empty_range_returns_no_splits(self) -> None:
         """Range too short for even one split returns an empty list."""
