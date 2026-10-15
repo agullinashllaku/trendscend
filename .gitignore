@@ -12,6 +12,8 @@ build/
 .ruff_cache/
 htmlcov/
 .coverage
+.coverage*
+backend/.coverage*
 coverage.xml
 
 # Node
@@ -41,3 +43,9 @@ gitleaks-report.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Research data cache (large downloaded files)
+research/data/
+
+# Worktrees
+.worktrees/

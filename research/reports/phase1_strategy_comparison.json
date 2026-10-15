@@ -1,0 +1,463 @@
+{
+  "generated_at": "2026-10-14T12:19:17.674956+00:00",
+  "config": {
+    "assets": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "BNB/USDT",
+      "XRP/USDT",
+      "ADA/USDT",
+      "AVAX/USDT",
+      "DOT/USDT"
+    ],
+    "timeframe": "4h",
+    "exchange": "binance",
+    "wf_start": "2021-01-01T00:00:00+00:00",
+    "wf_end": "2025-01-01T00:00:00+00:00",
+    "train_months": 12,
+    "test_months": 3,
+    "initial_capital": "10000",
+    "num_splits": 12,
+    "fee_note": "Round-trip fee model: Binance taker 0.1% + 0.05% slippage per side = 0.15% per side"
+  },
+  "strategies": [
+    {
+      "strategy_id": "hold_baseline",
+      "n_assets": 8,
+      "oos_sharpe_mean": 0.1305568084634059,
+      "oos_max_dd_mean": 0.35308877347210227,
+      "oos_cagr_mean": 10.931936359891065,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": 0.28968786394327267,
+          "max_dd": 0.24228692039804245,
+          "cagr": 1.7815272067523589,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": 0.1581837240785234,
+          "max_dd": 0.3094642927018995,
+          "cagr": 1.0495096817594527,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": 0.22911127735511996,
+          "max_dd": 0.44501014717181014,
+          "cagr": 44.119370753488596,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": 0.1760034273656567,
+          "max_dd": 0.2807811882350618,
+          "cagr": 1.55154122996382,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": 0.21599532397528376,
+          "max_dd": 0.3085368787067328,
+          "cagr": 10.54182812427619,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": 0.05450126342025541,
+          "max_dd": 0.3822256581610752,
+          "cagr": 4.278726431161025,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": -0.0013908393485431384,
+          "max_dd": 0.46044223070068085,
+          "cagr": 22.71194806279279,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": -0.07763757308232168,
+          "max_dd": 0.3959628717015153,
+          "cagr": 1.421039388934289,
+          "num_splits": 12
+        }
+      ]
+    },
+    {
+      "strategy_id": "rebalance_core",
+      "n_assets": 8,
+      "oos_sharpe_mean": 0.1305568084634059,
+      "oos_max_dd_mean": 0.35308877347210227,
+      "oos_cagr_mean": 10.931936359891065,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": 0.28968786394327267,
+          "max_dd": 0.24228692039804245,
+          "cagr": 1.7815272067523589,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": 0.1581837240785234,
+          "max_dd": 0.3094642927018995,
+          "cagr": 1.0495096817594527,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": 0.22911127735511996,
+          "max_dd": 0.44501014717181014,
+          "cagr": 44.119370753488596,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": 0.1760034273656567,
+          "max_dd": 0.2807811882350618,
+          "cagr": 1.55154122996382,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": 0.21599532397528376,
+          "max_dd": 0.3085368787067328,
+          "cagr": 10.54182812427619,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": 0.05450126342025541,
+          "max_dd": 0.3822256581610752,
+          "cagr": 4.278726431161025,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": -0.0013908393485431384,
+          "max_dd": 0.46044223070068085,
+          "cagr": 22.71194806279279,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": -0.07763757308232168,
+          "max_dd": 0.3959628717015153,
+          "cagr": 1.421039388934289,
+          "num_splits": 12
+        }
+      ]
+    },
+    {
+      "strategy_id": "dca_trend",
+      "n_assets": 8,
+      "oos_sharpe_mean": -0.08861535103170062,
+      "oos_max_dd_mean": 0.14439918815170086,
+      "oos_cagr_mean": 3.7041266755983924,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": 0.15028094084121568,
+          "max_dd": 0.10410820197768239,
+          "cagr": 0.5608155935080522,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": 0.054148520816028035,
+          "max_dd": 0.1339357180110124,
+          "cagr": 0.38601235491242036,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": 0.02207973570201377,
+          "max_dd": 0.15363957045401821,
+          "cagr": 4.000403668321366,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": -0.3450948134421375,
+          "max_dd": 0.14298594637777232,
+          "cagr": 0.9153693538382632,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": -0.3701337765128048,
+          "max_dd": 0.17910768047204803,
+          "cagr": 9.042690642228626,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": -0.16780941452867937,
+          "max_dd": 0.13173256533012004,
+          "cagr": 4.5725168025926,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": -0.06481903875587361,
+          "max_dd": 0.1630759783517212,
+          "cagr": 8.816353495201993,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": 0.012425037626632877,
+          "max_dd": 0.14660784423923237,
+          "cagr": 1.3388514941838177,
+          "num_splits": 12
+        }
+      ]
+    },
+    {
+      "strategy_id": "tsmom",
+      "n_assets": 8,
+      "oos_sharpe_mean": 0.003093992526687767,
+      "oos_max_dd_mean": 0.09415760519289423,
+      "oos_cagr_mean": 0.17812111521967885,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": 0.09008506808865396,
+          "max_dd": 0.09413309023178272,
+          "cagr": 0.2801404971491429,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": -0.1499102832448718,
+          "max_dd": 0.10978238699748509,
+          "cagr": 0.0446336226911312,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": 0.12927029100232423,
+          "max_dd": 0.0928011318659984,
+          "cagr": 0.32555469599126124,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": -0.15258865284644055,
+          "max_dd": 0.10576286029954322,
+          "cagr": 0.04322224131352542,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": -0.007727092039520346,
+          "max_dd": 0.10082587068316458,
+          "cagr": 0.19137403028719469,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": 0.09143638346739423,
+          "max_dd": 0.0822477265640256,
+          "cagr": 0.2136220237008695,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": 0.13033239485690123,
+          "max_dd": 0.08030045734682567,
+          "cagr": 0.24618221695044903,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": -0.10614616907093884,
+          "max_dd": 0.08740731755432861,
+          "cagr": 0.08023959367385695,
+          "num_splits": 12
+        }
+      ]
+    },
+    {
+      "strategy_id": "breakout",
+      "n_assets": 8,
+      "oos_sharpe_mean": 0.08329565671415148,
+      "oos_max_dd_mean": 0.2370497331964127,
+      "oos_cagr_mean": 5.048202383938821,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": 0.28377645275156776,
+          "max_dd": 0.1499672017510957,
+          "cagr": 1.3434994740199946,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": 0.07248236083573664,
+          "max_dd": 0.2011353558024578,
+          "cagr": 0.8167657679954615,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": 0.2570520657671426,
+          "max_dd": 0.2939220017683002,
+          "cagr": 11.569079479405707,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": 0.06884294772431813,
+          "max_dd": 0.18576300468221077,
+          "cagr": 0.3742931155538911,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": 0.002720382156661793,
+          "max_dd": 0.2569294300910681,
+          "cagr": 16.88797363792718,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": 0.024362019409050792,
+          "max_dd": 0.26514573433704164,
+          "cagr": 1.9961754537616898,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": 0.1176036340406687,
+          "max_dd": 0.2830209136774779,
+          "cagr": 6.165344186478791,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": -0.16047460897193463,
+          "max_dd": 0.26051422346164943,
+          "cagr": 1.2324879563678586,
+          "num_splits": 12
+        }
+      ]
+    },
+    {
+      "strategy_id": "grid_range",
+      "n_assets": 8,
+      "oos_sharpe_mean": -0.43021323602305045,
+      "oos_max_dd_mean": 0.13521432514435555,
+      "oos_cagr_mean": -0.1288153558556769,
+      "per_asset": [
+        {
+          "symbol": "BTC/USDT",
+          "sharpe": -0.28166673991950414,
+          "max_dd": 0.08501911507178006,
+          "cagr": -0.053736840577323565,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ETH/USDT",
+          "sharpe": -0.6747600496927472,
+          "max_dd": 0.12732886209786135,
+          "cagr": -0.24293958007016667,
+          "num_splits": 12
+        },
+        {
+          "symbol": "SOL/USDT",
+          "sharpe": -0.017468485146939685,
+          "max_dd": 0.1397123426115905,
+          "cagr": 0.19011655163565658,
+          "num_splits": 12
+        },
+        {
+          "symbol": "BNB/USDT",
+          "sharpe": -0.6080407232015622,
+          "max_dd": 0.12744597752095269,
+          "cagr": -0.2396598946952803,
+          "num_splits": 12
+        },
+        {
+          "symbol": "XRP/USDT",
+          "sharpe": -0.3156589875245327,
+          "max_dd": 0.13529911818331844,
+          "cagr": -0.14611241356435162,
+          "num_splits": 12
+        },
+        {
+          "symbol": "ADA/USDT",
+          "sharpe": -0.7233754579627577,
+          "max_dd": 0.17455708620182264,
+          "cagr": -0.35022690133048373,
+          "num_splits": 12
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "sharpe": -0.2976025641306287,
+          "max_dd": 0.14982066660442964,
+          "cagr": 0.022834806215888848,
+          "num_splits": 12
+        },
+        {
+          "symbol": "DOT/USDT",
+          "sharpe": -0.5231328806057312,
+          "max_dd": 0.14253143286308909,
+          "cagr": -0.21079857445935488,
+          "num_splits": 12
+        }
+      ]
+    }
+  ],
+  "gate": {
+    "passed": true,
+    "winner": "dca_trend",
+    "reason": "\u22655pp lower max drawdown on 8/8 assets",
+    "per_strategy": [
+      {
+        "strategy_id": "rebalance_core",
+        "passes": false,
+        "sharpe_beats": 0,
+        "dd_beats": 0,
+        "valid_assets": 8,
+        "reason": "does not beat baseline"
+      },
+      {
+        "strategy_id": "dca_trend",
+        "passes": true,
+        "sharpe_beats": 1,
+        "dd_beats": 8,
+        "valid_assets": 8,
+        "reason": "\u22655pp lower max drawdown on 8/8 assets"
+      },
+      {
+        "strategy_id": "tsmom",
+        "passes": true,
+        "sharpe_beats": 2,
+        "dd_beats": 8,
+        "valid_assets": 8,
+        "reason": "\u22655pp lower max drawdown on 8/8 assets"
+      },
+      {
+        "strategy_id": "breakout",
+        "passes": true,
+        "sharpe_beats": 2,
+        "dd_beats": 8,
+        "valid_assets": 8,
+        "reason": "\u22655pp lower max drawdown on 8/8 assets"
+      },
+      {
+        "strategy_id": "grid_range",
+        "passes": true,
+        "sharpe_beats": 0,
+        "dd_beats": 8,
+        "valid_assets": 8,
+        "reason": "\u22655pp lower max drawdown on 8/8 assets"
+      }
+    ]
+  }
+}
