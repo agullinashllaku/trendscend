@@ -168,7 +168,11 @@ class PaperEngine:
 
             # 4. Execute fill if approved/resized
             if risk_decision.outcome in {RiskOutcome.APPROVED, RiskOutcome.RESIZED}:
-                approved_size = risk_decision.approved_size_pct or proposal.size_pct
+                approved_size = (
+                    risk_decision.approved_size_pct
+                    if risk_decision.approved_size_pct is not None
+                    else proposal.size_pct
+                )
                 fill_executed = self._execute_fill(
                     symbol=symbol,
                     action=proposal.action,
