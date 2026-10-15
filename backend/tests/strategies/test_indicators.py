@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 
 from tests.strategies.conftest import load_btc_100_bars
+from trendscend.indicators.regime import efficiency_ratio, ema_slope
 from trendscend.indicators.trend import atr, donchian_high, donchian_low, ema
 from trendscend.schemas.market import OHLCV
 
@@ -186,3 +187,76 @@ class TestDonchianLow:
         assert result[0] == pytest.approx(3.0)
         assert result[1] == pytest.approx(2.0)
         assert result[2] == pytest.approx(1.0)
+
+
+class TestEfficiencyRatio:
+    def test_returns_empty_when_not_enough_candles(self) -> None:
+        candles = make_candles([1.0] * 5)
+        assert efficiency_ratio(candles, period=10) == []
+
+    def test_returns_empty_when_candles_equal_period(self) -> None:
+        candles = make_candles([1.0] * 10)
+        assert efficiency_ratio(candles, period=10) == []
+
+    def test_output_length(self) -> None:
+        candles = make_candles(list(range(1, 31)))  # 30 bars
+        result = efficiency_ratio(candles, period=10)
+        # output length = len(candles) - period = 30 - 10 = 20
+        assert len(result) == 20
+
+    def test_trending_series_has_high_er(self) -> None:
+        """A perfectly monotonically rising series should have ER ≈ 1.0."""
+        prices = [float(i) for i in range(1, 31)]
+        candles = make_candles(prices, spread_pct=0.0)
+        result = efficiency_ratio(candles, period=10)
+        assert all(r > 0.95 for r in result)
+
+    def test_ranging_series_has_low_er(self) -> None:
+        """An alternating series should have ER close to 0."""
+        prices = [100.0 if i % 2 == 0 else 101.0 for i in range(30)]
+        candles = make_candles(prices, spread_pct=0.0)
+        result = efficiency_ratio(candles, period=10)
+        assert all(r < 0.20 for r in result)
+
+    def test_values_bounded_0_to_1(self) -> None:
+        candles = make_candles([abs(i % 10 - 5) + 1.0 for i in range(30)], spread_pct=0.0)
+        result = efficiency_ratio(candles, period=10)
+        assert all(0.0 <= r <= 1.0 for r in result)
+
+    def test_zero_path_returns_zero(self) -> None:
+        """All identical prices → path_length = 0 → ER = 0."""
+        candles = make_candles([100.0] * 20, spread_pct=0.0)
+        result = efficiency_ratio(candles, period=10)
+        assert all(r == 0.0 for r in result)
+
+
+class TestEmaSlope:
+    def test_returns_empty_when_not_enough_ema_values(self) -> None:
+        # ema(candles, 5) needs ≥5 bars → returns 1 value with 5 bars
+        # ema_slope with slope_period=1 needs ≥2 ema values → needs ≥6 bars
+        candles = make_candles([1.0] * 5)
+        assert ema_slope(candles, ema_period=5, slope_period=1) == []
+
+    def test_output_length(self) -> None:
+        candles = make_candles(list(range(1, 21)))  # 20 bars
+        # ema(20 bars, period=5) → 16 values
+        # ema_slope slope_period=1 → 15 values
+        result = ema_slope(candles, ema_period=5, slope_period=1)
+        assert len(result) == 15
+
+    def test_rising_series_has_positive_slope(self) -> None:
+        prices = list(range(1, 31))
+        candles = make_candles(prices, spread_pct=0.0)
+        result = ema_slope(candles, ema_period=5, slope_period=1)
+        assert all(s > 0.0 for s in result)
+
+    def test_falling_series_has_negative_slope(self) -> None:
+        prices = list(range(30, 0, -1))
+        candles = make_candles(prices, spread_pct=0.0)
+        result = ema_slope(candles, ema_period=5, slope_period=1)
+        assert all(s < 0.0 for s in result)
+
+    def test_flat_series_slope_near_zero(self) -> None:
+        candles = make_candles([100.0] * 20, spread_pct=0.0)
+        result = ema_slope(candles, ema_period=5, slope_period=1)
+        assert all(abs(s) < 1e-9 for s in result)
