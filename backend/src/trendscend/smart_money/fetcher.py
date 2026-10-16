@@ -60,13 +60,18 @@ class HyperliquidFetcher:
         else:
             self._http_post = http_post
 
-    async def fetch_leaderboard(self, top_n: int = 200) -> list[str]:
-        """Return wallet addresses of the top-N traders on Hyperliquid."""
+    async def fetch_leaderboard(self, top_n: int = 200) -> list[tuple[str, float]]:
+        """Return (address, account_value) tuples for the top-N traders on Hyperliquid.
+
+        ``account_value`` is the trader's total account equity in USD as reported
+        by the leaderboard. It is used as a proxy for PnL when constructing
+        WalletRecord — a positive account value indicates a live, funded account.
+        """
         data = await self._http_post(_HL_API, {"type": "leaderboard"})
         rows: list[dict] = data.get("leaderboardRows", [])
-        return [row["ethAddress"] for row in rows[:top_n]]
+        return [(row["ethAddress"], float(row.get("accountValue", 0))) for row in rows[:top_n]]
 
-    async def fetch_wallet(self, address: str) -> WalletRecord:
+    async def fetch_wallet(self, address: str, account_value: float = 0.0) -> WalletRecord:
         """Fetch positions and fills for a wallet address."""
         positions_data, fills_data = await asyncio.gather(
             self._http_post(_HL_API, {"type": "clearinghouseState", "user": address}),
@@ -109,7 +114,7 @@ class HyperliquidFetcher:
 
         return WalletRecord(
             address=address,
-            pnl_usd=0.0,
+            pnl_usd=account_value,
             fills=fills,
             positions=positions,
             fetched_at=datetime.now(UTC),

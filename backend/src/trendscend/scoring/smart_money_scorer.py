@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from trendscend.schemas.market import OHLCV
 from trendscend.schemas.scoring import SmartMoneyScore
 from trendscend.schemas.smart_money import SmartMoneyState
-from trendscend.scoring.news_scorer import _closest_close
+from trendscend.scoring._candle_utils import _closest_close
 
 _MIN_SHIFT = 0.05  # only score shifts > 5pp net-long change
 

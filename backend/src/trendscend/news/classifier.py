@@ -75,7 +75,8 @@ class ClassificationResult:
 
 
 def _build_user_prompt(item: RawNewsItem, affected_assets: list[str]) -> str:
-    body_section = f"\n\n{item.body}" if item.body else ""
+    safe_body = (item.body or "").replace("</news_article>", "<\\/news_article>")
+    body_section = f"\n\n{safe_body}" if safe_body else ""
     assets_hint = ", ".join(affected_assets) if affected_assets else "unknown"
     return (
         f"Relevant assets (from context, not from the article): {assets_hint}\n\n"
@@ -88,10 +89,9 @@ def _build_user_prompt(item: RawNewsItem, affected_assets: list[str]) -> str:
 def _make_default_llm(config: ClassifierConfig) -> Callable[[str, str, str], Awaitable[str]]:
     import anthropic
 
-    client = anthropic.AsyncAnthropic()
+    client = anthropic.AsyncAnthropic(max_retries=config.max_retries)
 
     async def call(system: str, user: str, model: str) -> str:
-        # max_retries not yet wired; inject custom llm_complete if retries needed
         async with asyncio.timeout(config.timeout_s):
             msg = await client.messages.create(
                 model=model,

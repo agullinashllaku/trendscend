@@ -66,6 +66,9 @@ class NewsFetcher:
         Returns:
             List of raw news items. Body may be None for articles without a summary.
         """
+        # NOTE: CryptoPanic requires auth_token as a query parameter — no header auth supported.
+        # The key will appear in server-side access logs on CryptoPanic's end. Treat this
+        # key as low-privilege and rotatable; ensure proxy logs are scrubbed or not retained.
         params = {
             "auth_token": api_key,
             "filter": filter,

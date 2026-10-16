@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_gate_report_runs_without_error() -> None:
@@ -12,7 +13,7 @@ def test_gate_report_runs_without_error() -> None:
         [sys.executable, "research/phase3_gate_report.py", "--fixture"],
         capture_output=True,
         text=True,
-        cwd=".",  # backend/
+        cwd=str(Path(__file__).parent.parent.parent),  # backend/
     )
     assert result.returncode == 0, f"Script failed:\n{result.stderr}"
     assert "Phase 3" in result.stdout or "Phase 3" in result.stderr

@@ -58,30 +58,39 @@ def _fills_response() -> dict:
 
 
 class TestHyperliquidFetcherLeaderboard:
-    def test_returns_list_of_addresses(self) -> None:
+    def test_returns_list_of_tuples(self) -> None:
         async def fake_post(url: str, payload: dict) -> dict:
             return _leaderboard_response(5)
 
         fetcher = HyperliquidFetcher(http_post=fake_post)
-        addresses = asyncio.run(fetcher.fetch_leaderboard(top_n=5))
-        assert len(addresses) == 5
-        assert all(isinstance(a, str) for a in addresses)
+        results = asyncio.run(fetcher.fetch_leaderboard(top_n=5))
+        assert len(results) == 5
+        assert all(isinstance(addr, str) and isinstance(val, float) for addr, val in results)
+
+    def test_account_value_populated(self) -> None:
+        async def fake_post(url: str, payload: dict) -> dict:
+            return _leaderboard_response(3)
+
+        fetcher = HyperliquidFetcher(http_post=fake_post)
+        results = asyncio.run(fetcher.fetch_leaderboard(top_n=3))
+        # _leaderboard_response sets accountValue="10000" for every row
+        assert all(val == 10000.0 for _, val in results)
 
     def test_top_n_limits_results(self) -> None:
         async def fake_post(url: str, payload: dict) -> dict:
             return _leaderboard_response(10)
 
         fetcher = HyperliquidFetcher(http_post=fake_post)
-        addresses = asyncio.run(fetcher.fetch_leaderboard(top_n=3))
-        assert len(addresses) == 3
+        results = asyncio.run(fetcher.fetch_leaderboard(top_n=3))
+        assert len(results) == 3
 
     def test_empty_leaderboard_returns_empty(self) -> None:
         async def fake_post(url: str, payload: dict) -> dict:
             return {"leaderboardRows": []}
 
         fetcher = HyperliquidFetcher(http_post=fake_post)
-        addresses = asyncio.run(fetcher.fetch_leaderboard())
-        assert addresses == []
+        results = asyncio.run(fetcher.fetch_leaderboard())
+        assert results == []
 
 
 class TestHyperliquidFetcherWallet:

@@ -7,16 +7,9 @@ from datetime import UTC, datetime, timedelta
 from trendscend.schemas.market import OHLCV
 from trendscend.schemas.news import NewsEvent
 from trendscend.schemas.scoring import NewsEventScore
+from trendscend.scoring._candle_utils import _closest_close
 
 _HORIZONS = {"1h": timedelta(hours=1), "4h": timedelta(hours=4), "24h": timedelta(hours=24)}
-
-
-def _closest_close(candles: list[OHLCV], ts: datetime) -> float | None:
-    """Return the close price of the candle whose timestamp is closest to ts."""
-    if not candles:
-        return None
-    best = min(candles, key=lambda c: abs((c.timestamp - ts).total_seconds()))
-    return float(best.close)
 
 
 class NewsScorer:
