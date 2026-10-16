@@ -12,6 +12,7 @@ research/reports/phase3_shadow_signal_report.md (relative to repo root).
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -142,7 +143,7 @@ def run_report(fixture: bool = False) -> str:
     for horizon in ("1h", "4h", "24h"):
         valid_count = sum(1 for s in scores if getattr(s, f"return_{horizon}") is not None)
         acc = accuracy.get(horizon, float("nan"))
-        acc_str = f"{acc:.1%}" if acc == acc else "N/A"
+        acc_str = f"{acc:.1%}" if not math.isnan(acc) else "N/A"
         lines.append(f"| {horizon} | {valid_count} | {acc_str} |")
 
     lines += [
@@ -155,10 +156,10 @@ def run_report(fixture: bool = False) -> str:
     if sm_scores:
         for sc in sm_scores:
             before_after = f"{sc.net_long_pct_before:.0%} → {sc.net_long_pct_after:.0%}"
-            if sc.return_1h is not None:
-                detail = f"1h={sc.return_1h:.2%} 4h={sc.return_4h:.2%} 24h={sc.return_24h:.2%}"
-            else:
-                detail = "insufficient candles"
+            parts = []
+            for lbl, val in (("1h", sc.return_1h), ("4h", sc.return_4h), ("24h", sc.return_24h)):
+                parts.append(f"{lbl}={val:.2%}" if val is not None else f"{lbl}=N/A")
+            detail = " ".join(parts)
             lines.append(f"- {sc.symbol}: {before_after} | {detail}")
 
     lines += [
