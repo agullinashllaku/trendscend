@@ -36,13 +36,10 @@ class WalletVetter:
         if len(fills) < VET_MIN_TRADES:
             reasons.append(f"insufficient trades: {len(fills)} < {VET_MIN_TRADES}")
 
-        if fills:
-            earliest = min(f.timestamp for f in fills)
-            history_days = (datetime.now(UTC) - earliest).days
-            if history_days < VET_MIN_HISTORY_DAYS:
-                reasons.append(
-                    f"insufficient history: {history_days} days < {VET_MIN_HISTORY_DAYS}"
-                )
+        earliest = min((f.timestamp for f in fills), default=datetime.now(UTC))
+        history_days = (datetime.now(UTC) - earliest).days
+        if history_days < VET_MIN_HISTORY_DAYS:
+            reasons.append(f"insufficient history: {history_days} days < {VET_MIN_HISTORY_DAYS}")
 
         # 2. Positive PnL in ≥ 60% of rolling 30-day windows (proxy: overall pnl > 0)
         # Full rolling window requires equity curve; proxy with overall PnL positivity.
