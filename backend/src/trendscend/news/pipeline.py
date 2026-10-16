@@ -42,7 +42,7 @@ def build_news_state(events: list[NewsEvent], assets: list[str]) -> NewsState:
         has_severe_neg = any(
             e.severity >= 4 and e.direction == NewsDirection.BEARISH for e in relevant
         )
-        asset_key = asset if asset in [e_a for e in events for e_a in e.assets] else base
+        asset_key = asset
         per_asset[asset_key] = AssetNewsState(
             symbol=asset_key,
             recent_events=relevant,

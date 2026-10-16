@@ -86,7 +86,7 @@ class TestBuildNewsState:
     def test_severe_negative_flag_set(self) -> None:
         ev = _event(severity=4, direction=NewsDirection.BEARISH, assets=["BTC"])
         state = build_news_state([ev], ["BTC/USDT"])
-        assert "BTC/USDT" in state.per_asset or "BTC" in state.per_asset
+        assert state.per_asset["BTC/USDT"].has_severe_negative is True
 
     def test_max_severity_24h_populated(self) -> None:
         events = [
@@ -94,8 +94,7 @@ class TestBuildNewsState:
             _event(severity=4, assets=["BTC"]),
         ]
         state = build_news_state(events, ["BTC/USDT"])
-        asset_key = "BTC/USDT" if "BTC/USDT" in state.per_asset else "BTC"
-        assert state.per_asset[asset_key].max_severity_24h == 4
+        assert state.per_asset["BTC/USDT"].max_severity_24h == 4
 
     def test_computed_at_is_recent(self) -> None:
         state = build_news_state([], ["BTC/USDT"])
