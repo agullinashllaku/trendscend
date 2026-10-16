@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 _HL_API = "https://api.hyperliquid.xyz/info"
 
@@ -45,18 +46,18 @@ class HyperliquidFetcher:
 
     def __init__(
         self,
-        http_post: Callable[[str, dict], Awaitable[dict]] | None = None,
+        http_post: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         if http_post is None:
             import httpx
 
-            async def _default(url: str, payload: dict) -> dict:
+            async def _default(url: str, payload: dict[str, Any]) -> dict[str, Any]:
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     r = await client.post(url, json=payload)
                     r.raise_for_status()
                     return dict(r.json())
 
-            self._http_post: Callable[[str, dict], Awaitable[dict]] = _default
+            self._http_post: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] = _default
         else:
             self._http_post = http_post
 
@@ -68,7 +69,7 @@ class HyperliquidFetcher:
         WalletRecord — a positive account value indicates a live, funded account.
         """
         data = await self._http_post(_HL_API, {"type": "leaderboard"})
-        rows: list[dict] = data.get("leaderboardRows", [])
+        rows: list[dict[str, Any]] = data.get("leaderboardRows", [])
         return [(row["ethAddress"], float(row.get("accountValue", 0))) for row in rows[:top_n]]
 
     async def fetch_wallet(self, address: str, account_value: float = 0.0) -> WalletRecord:

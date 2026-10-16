@@ -99,7 +99,8 @@ def _make_default_llm(config: ClassifierConfig) -> Callable[[str, str, str], Awa
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-        return str(msg.content[0].text) if msg.content else ""
+        block = msg.content[0] if msg.content else None
+        return block.text if isinstance(block, anthropic.types.TextBlock) else ""
 
     return call
 

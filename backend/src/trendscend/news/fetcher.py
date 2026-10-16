@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 
 def make_url_hash(url: str) -> str:
@@ -35,18 +36,18 @@ class NewsFetcher:
 
     def __init__(
         self,
-        http_get: Callable[[str, dict], Awaitable[dict]] | None = None,
+        http_get: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         if http_get is None:
             import httpx
 
-            async def _default(url: str, params: dict) -> dict:
+            async def _default(url: str, params: dict[str, Any]) -> dict[str, Any]:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     r = await client.get(url, params=params)
                     r.raise_for_status()
                     return dict(r.json())
 
-            self._http_get: Callable[[str, dict], Awaitable[dict]] = _default
+            self._http_get: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] = _default
         else:
             self._http_get = http_get
 
@@ -76,7 +77,7 @@ class NewsFetcher:
             "limit": str(limit),
         }
         data = await self._http_get(_CRYPTOPANIC_BASE, params)
-        results: list[dict] = data.get("results", [])
+        results: list[dict[str, Any]] = data.get("results", [])
         items: list[RawNewsItem] = []
         for r in results:
             url: str = r.get("url", "")
