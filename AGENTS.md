@@ -21,6 +21,7 @@
 - Log every decision cycle as a DecisionRecord.
 - Explain non-obvious technical choices in PR descriptions (the owner wants the reasoning, not just the code).
 - When a design decision isn't covered by PLAN.md, ask the owner instead of guessing.
+- After each phase PR is merged to main: update CLAUDE.md to mark the phase COMPLETE (PR number, merge date, CI status, gate result) and set the Next pointer to the following phase. Commit and push directly to main.
 
 ## Owner decisions (from pre-Phase-0 questions)
 - Exchanges: Binance + Bybit (spot only for MVP; no perps until Phase 8+)
