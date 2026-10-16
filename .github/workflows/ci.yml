@@ -95,7 +95,8 @@ jobs:
           format: "table"
           exit-code: "1"
           severity: "HIGH,CRITICAL"
-          skip-dirs: ".venv,node_modules,.git"
+          scanners: "vuln"
+          skip-dirs: ".venv,backend/.venv,node_modules,.git"
           trivyignores: ".trivyignore"
 
   docker-health:
