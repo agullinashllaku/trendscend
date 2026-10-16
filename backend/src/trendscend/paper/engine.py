@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from trendscend.backtester.fees import FeeModel
@@ -244,7 +245,7 @@ class PaperEngine:
             return True
 
         if action in {TradeAction.BUY, TradeAction.SELL}:
-            side = "buy" if action == TradeAction.BUY else "sell"
+            side: Literal["buy", "sell"] = "buy" if action == TradeAction.BUY else "sell"
             slipped = self._fee_model.apply_slippage(fill_price, side)
 
             # Size: approved_size fraction of initial capital
