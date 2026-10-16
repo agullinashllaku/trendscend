@@ -39,15 +39,11 @@ class NewsScorer:
             if base_price is None or base_price == 0.0:
                 return None
             target_ts = event.published_at + horizon
-            future_price = _closest_close(
-                [c for c in candles_after if c.timestamp >= event.published_at], target_ts
-            )
+            post_event = [c for c in candles_after if c.timestamp >= event.published_at]
+            future_price = _closest_close(post_event, target_ts)
             if future_price is None:
                 return None
-            nearest = min(
-                candles_after,
-                key=lambda c: abs((c.timestamp - target_ts).total_seconds()),
-            )
+            nearest = min(post_event, key=lambda c: abs((c.timestamp - target_ts).total_seconds()))
             gap = abs((nearest.timestamp - target_ts).total_seconds())
             if gap > horizon.total_seconds() * 0.5:
                 return None
