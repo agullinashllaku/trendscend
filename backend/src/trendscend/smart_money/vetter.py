@@ -35,6 +35,7 @@ class WalletVetter:
         # 1. ≥ 120 days history and ≥ 50 closed trades
         if len(fills) < VET_MIN_TRADES:
             reasons.append(f"insufficient trades: {len(fills)} < {VET_MIN_TRADES}")
+
         if fills:
             earliest = min(f.timestamp for f in fills)
             history_days = (datetime.now(UTC) - earliest).days
@@ -65,7 +66,7 @@ class WalletVetter:
         # 4. No averaging-down: flag if adds to losing position ≥ 3 times in a row
         # Proxy: detect same-direction fills in a row on same symbol
         if fills:
-            by_symbol: dict[str, list] = {}
+            by_symbol: dict[str, list[str]] = {}
             for f in sorted(fills, key=lambda x: x.timestamp):
                 by_symbol.setdefault(f.symbol, []).append(f.side)
             for sym, sides in by_symbol.items():
