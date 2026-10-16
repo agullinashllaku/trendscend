@@ -516,3 +516,76 @@ class TestBotRiskState:
         with pytest.raises(ValidationError):
             state = self._valid_state()
             BotRiskState(**{**state.model_dump(), "trades_today": -1})
+
+
+from trendscend.schemas.scoring import NewsEventScore, SmartMoneyScore  # noqa: E402
+
+
+class TestNewsEventScore:
+    def test_valid_score_constructs(self) -> None:
+        score = NewsEventScore(
+            event_id=uuid4(),
+            symbol="BTC/USDT",
+            direction=NewsDirection.BEARISH,
+            severity=4,
+            return_1h=-0.02,
+            return_4h=-0.05,
+            return_24h=-0.08,
+            scored_at=datetime.now(UTC),
+        )
+        assert score.severity == 4
+        assert score.return_1h == -0.02
+
+    def test_none_returns_allowed(self) -> None:
+        score = NewsEventScore(
+            event_id=uuid4(),
+            symbol="ETH/USDT",
+            direction=NewsDirection.BULLISH,
+            severity=2,
+            return_1h=None,
+            return_4h=None,
+            return_24h=None,
+            scored_at=datetime.now(UTC),
+        )
+        assert score.return_24h is None
+
+    def test_invalid_severity_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            NewsEventScore(
+                event_id=uuid4(),
+                symbol="BTC/USDT",
+                direction=NewsDirection.NEUTRAL,
+                severity=6,  # invalid
+                return_1h=None,
+                return_4h=None,
+                return_24h=None,
+                scored_at=datetime.now(UTC),
+            )
+
+
+class TestSmartMoneyScore:
+    def test_valid_score_constructs(self) -> None:
+        score = SmartMoneyScore(
+            snapshot_at=datetime.now(UTC),
+            symbol="BTC/USDT",
+            net_long_pct_before=0.6,
+            net_long_pct_after=0.7,
+            return_1h=0.01,
+            return_4h=0.03,
+            return_24h=0.05,
+            scored_at=datetime.now(UTC),
+        )
+        assert score.net_long_pct_before == 0.6
+
+    def test_pct_out_of_range_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            SmartMoneyScore(
+                snapshot_at=datetime.now(UTC),
+                symbol="BTC/USDT",
+                net_long_pct_before=1.5,  # invalid
+                net_long_pct_after=0.7,
+                return_1h=None,
+                return_4h=None,
+                return_24h=None,
+                scored_at=datetime.now(UTC),
+            )
