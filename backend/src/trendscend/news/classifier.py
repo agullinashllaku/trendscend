@@ -10,6 +10,7 @@ Design rules (PLAN.md §3, §10):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import Awaitable, Callable
@@ -84,17 +85,20 @@ def _build_user_prompt(item: RawNewsItem, affected_assets: list[str]) -> str:
     )
 
 
-def _make_default_llm() -> Callable[[str, str, str], Awaitable[str]]:
+def _make_default_llm(config: ClassifierConfig) -> Callable[[str, str, str], Awaitable[str]]:
     import anthropic
 
+    client = anthropic.AsyncAnthropic()
+
     async def call(system: str, user: str, model: str) -> str:
-        client = anthropic.AsyncAnthropic()
-        msg = await client.messages.create(
-            model=model,
-            max_tokens=256,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
+        # max_retries not yet wired; inject custom llm_complete if retries needed
+        async with asyncio.timeout(config.timeout_s):
+            msg = await client.messages.create(
+                model=model,
+                max_tokens=config.max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
         return str(msg.content[0].text) if msg.content else ""
 
     return call
@@ -112,8 +116,8 @@ class NewsClassifier:
         llm_complete: Callable[[str, str, str], Awaitable[str]] | None = None,
         config: ClassifierConfig | None = None,
     ) -> None:
-        self._llm = llm_complete if llm_complete is not None else _make_default_llm()
         self._config = config or ClassifierConfig()
+        self._llm = llm_complete if llm_complete is not None else _make_default_llm(self._config)
 
     async def classify(
         self,
