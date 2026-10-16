@@ -101,3 +101,58 @@ def adx(candles: list[OHLCV], period: int = 14) -> list[float]:
         adx_result.append(adx_result[-1] * (1.0 - alpha) + dx * alpha)
 
     return adx_result
+
+
+def efficiency_ratio(candles: list[OHLCV], period: int = 20) -> list[float]:
+    """Kaufman's Efficiency Ratio: net directional move / total path length.
+
+    ER = |close[t] - close[t-period]| / sum(|close[i] - close[i-1]|)
+
+    ER ≈ 1.0 → highly efficient/trending (price moved one direction).
+    ER ≈ 0.0 → noisy/ranging (lots of back-and-forth).
+
+    Args:
+        candles: OHLCV bars in ascending time order.
+        period:  Look-back window (default 20).
+
+    Returns:
+        List of ER values (length = len(candles) - period), or [] if
+        len(candles) <= period.
+    """
+    if len(candles) <= period:
+        return []
+
+    closes = [float(c.close) for c in candles]
+    result: list[float] = []
+    for i in range(period, len(closes)):
+        net_move = abs(closes[i] - closes[i - period])
+        path = sum(abs(closes[j] - closes[j - 1]) for j in range(i - period + 1, i + 1))
+        result.append(net_move / path if path > 0.0 else 0.0)
+    return result
+
+
+def ema_slope(candles: list[OHLCV], ema_period: int, slope_period: int = 1) -> list[float]:
+    """Normalised EMA slope: (ema[t] - ema[t-slope_period]) / ema[t-slope_period].
+
+    Positive → EMA trending up; negative → trending down.
+    Normalising by the EMA value makes the slope comparable across price levels.
+
+    Args:
+        candles:      OHLCV bars in ascending time order.
+        ema_period:   Period for the EMA.
+        slope_period: How many EMA steps back to measure the change (default 1).
+
+    Returns:
+        List of normalised slope values, or [] if there are insufficient EMA
+        values (need > slope_period EMA outputs).
+    """
+    from trendscend.indicators.trend import ema as _ema
+
+    ema_vals = _ema(candles, ema_period)
+    if len(ema_vals) <= slope_period:
+        return []
+    result: list[float] = []
+    for i in range(slope_period, len(ema_vals)):
+        prev = ema_vals[i - slope_period]
+        result.append((ema_vals[i] - prev) / prev if prev != 0.0 else 0.0)
+    return result
