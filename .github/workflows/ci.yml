@@ -96,7 +96,7 @@ jobs:
           exit-code: "1"
           severity: "HIGH,CRITICAL"
           skip-dirs: ".venv,node_modules,.git"
-          ignorefile: ".trivyignore"
+          trivyignores: ".trivyignore"
 
   docker-health:
     name: Docker stack health
@@ -107,20 +107,23 @@ jobs:
         working-directory: infra
         run: docker compose up -d
       - name: Wait for Postgres to be healthy
+        working-directory: infra
         run: |
           timeout 60 bash -c \
-            'until docker compose -f infra/docker-compose.yml exec -T postgres \
+            'until docker compose exec -T postgres \
               pg_isready -U trendscend -d trendscend; \
             do sleep 2; done'
       - name: Wait for Redis to be healthy
+        working-directory: infra
         run: |
           timeout 30 bash -c \
-            'until docker compose -f infra/docker-compose.yml exec -T redis \
+            'until docker compose exec -T redis \
               redis-cli ping | grep -q PONG; \
             do sleep 2; done'
       - name: Verify TimescaleDB extension loaded
+        working-directory: infra
         run: |
-          docker compose -f infra/docker-compose.yml exec -T postgres \
+          docker compose exec -T postgres \
             psql -U trendscend -d trendscend \
             -c "SELECT extname FROM pg_extension WHERE extname = 'timescaledb';" \
           | grep -q timescaledb
