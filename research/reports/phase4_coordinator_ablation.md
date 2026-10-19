@@ -51,6 +51,7 @@ Script: `backend/research/phase4_ablation.py`
 **Result on synthetic data:** FAIL
 
 - Coordinator OOS Sharpe: **9.711** vs buy-and-hold **29.829** (below threshold)
+- Best-single-strategy (TsmomStrategy) OOS Sharpe: **9.711**
 - Coordinator max drawdown: **0.1%** vs buy-and-hold × 0.9 **≈0.09%** (marginally above threshold due to fee drag)
 
 **Interpretation:** On a pure deterministic uptrend (no volatility, no drawdowns), buy-and-hold trivially dominates any trend-following or DCA strategy because:
