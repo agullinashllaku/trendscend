@@ -124,10 +124,12 @@ jobs:
       - name: Verify TimescaleDB extension loaded
         working-directory: infra
         run: |
-          docker compose exec -T postgres \
-            psql -U trendscend -d trendscend \
-            -c "SELECT extname FROM pg_extension WHERE extname = 'timescaledb';" \
-          | grep -q timescaledb
+          timeout 30 bash -c \
+            'until docker compose exec -T postgres \
+              psql -U trendscend -d trendscend \
+              -c "SELECT extname FROM pg_extension WHERE extname = '"'"'timescaledb'"'"';" \
+              | grep -q timescaledb; \
+            do sleep 2; done'
       - name: Tear down
         if: always()
         working-directory: infra
