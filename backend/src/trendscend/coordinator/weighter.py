@@ -59,13 +59,11 @@ def _regime_fit_score(strategy_id: str, regime_type: RegimeType | None) -> float
     )
     if matched_key is None:
         return _UNKNOWN_SCORE
+    if regime_type in STRATEGY_REGIME_FIT[matched_key]:
+        return _IN_REGIME_SCORE
     if regime_type == RegimeType.HIGH_VOL_CHAOS:
         return _CHAOS_SCORE
-    return (
-        _IN_REGIME_SCORE
-        if regime_type in STRATEGY_REGIME_FIT[matched_key]
-        else _OUT_OF_REGIME_SCORE
-    )
+    return _OUT_OF_REGIME_SCORE
 
 
 def weight_signals(

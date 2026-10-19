@@ -160,3 +160,11 @@ class TestWeightSignals:
         for strat in ["tsmom", "breakout", "grid_range", "dca_trend", "rebalance_core"]:
             score = _regime_fit_score(strat, RegimeType.HIGH_VOL_CHAOS)
             assert score < 0.5, f"{strat} should score <0.5 in chaos, got {score}"
+
+    def test_hold_baseline_full_score_in_chaos(self) -> None:
+        from trendscend.coordinator.weighter import _regime_fit_score
+        from trendscend.schemas.regime import RegimeType
+
+        # hold_baseline fits all regimes including HIGH_VOL_CHAOS
+        score = _regime_fit_score("hold_baseline", RegimeType.HIGH_VOL_CHAOS)
+        assert score == 1.0
