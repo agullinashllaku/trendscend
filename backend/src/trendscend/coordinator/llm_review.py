@@ -157,7 +157,7 @@ def review_proposal(
     try:
         data = json.loads(raw_text)
         parsed = _LLMResponseSchema(data)
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError):
         return LLMReviewResult(
             adjustment_factor=_FALLBACK_FACTOR,
             rationale="LLM response could not be parsed — position halved as precaution",

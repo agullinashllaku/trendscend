@@ -141,6 +141,24 @@ class TestReviewProposal:
         assert result.concerns is not None
         assert "ETF" in result.concerns
 
+    def test_non_dict_json_returns_parse_error(self) -> None:
+        from trendscend.coordinator.llm_review import review_proposal
+
+        # LLM returns a JSON array instead of an object
+        client = _mock_client("[]")
+
+        result = review_proposal(
+            proposal=_proposal(),
+            news_summary="",
+            sm_summary="",
+            style=RiskStyle.BALANCED,
+            model="claude-sonnet-4-6",
+            client=client,
+        )
+
+        assert result.adjustment_factor == pytest.approx(0.5)
+        assert result.parse_error is True
+
     def test_summarise_news_no_raw_headlines(self) -> None:
         from trendscend.coordinator.llm_review import _summarise_news
 
