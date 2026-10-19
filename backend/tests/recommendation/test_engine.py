@@ -101,3 +101,64 @@ class TestRankStrategies:
         )
         assert hasattr(r, "disclaimer")
         assert "past data" in r.disclaimer.lower()
+
+    def test_hold_baseline_always_present(self) -> None:
+        """hold_baseline must appear in rankings even when run_walk_forward returns num_splits=0."""
+        from unittest.mock import patch
+
+        from trendscend.recommendation.engine import rank_strategies
+        from trendscend.research.walk_forward import WalkForwardReport
+        from trendscend.strategies.hold_baseline import HoldBaselineStrategy
+        from trendscend.strategies.tsmom import TsmomStrategy
+
+        # Enough candles to pass generate_wf_splits (splits != []), but we mock
+        # run_walk_forward so that hold_baseline returns num_splits=0.
+        candles = _candles(550)
+
+        hold_baseline_report = WalkForwardReport(
+            strategy_id="hold_baseline",
+            symbol="BTC/USDT",
+            timeframe="1d",
+            num_splits=0,
+            oos_sharpe_mean=0.0,
+            oos_sharpe_std=0.0,
+            oos_max_drawdown_mean=0.0,
+            oos_max_drawdown_worst=0.0,
+            oos_cagr_mean=0.0,
+            per_split_results=[],
+        )
+        tsmom_report = WalkForwardReport(
+            strategy_id="tsmom",
+            symbol="BTC/USDT",
+            timeframe="1d",
+            num_splits=2,
+            oos_sharpe_mean=0.5,
+            oos_sharpe_std=0.1,
+            oos_max_drawdown_mean=0.1,
+            oos_max_drawdown_worst=0.15,
+            oos_cagr_mean=0.12,
+            per_split_results=[],
+        )
+
+        def fake_run_walk_forward(strategy, **kwargs):  # type: ignore[no-untyped-def]
+            if strategy.strategy_id == "hold_baseline":
+                return hold_baseline_report
+            return tsmom_report
+
+        with patch(
+            "trendscend.recommendation.engine.run_walk_forward",
+            side_effect=fake_run_walk_forward,
+        ):
+            result = rank_strategies(
+                strategies=[HoldBaselineStrategy(), TsmomStrategy()],
+                candles=candles,
+                symbol="BTC/USDT",
+                timeframe="1d",
+                initial_capital=Decimal("10000"),
+            )
+
+        assert any(r.strategy_id == "hold_baseline" for r in result), (
+            "hold_baseline must always be present in rankings"
+        )
+        hold_entry = next(r for r in result if r.strategy_id == "hold_baseline")
+        assert hold_entry.score == pytest.approx(0.0)

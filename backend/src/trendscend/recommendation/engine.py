@@ -78,6 +78,17 @@ def rank_strategies(
             symbol=symbol,
         )
         if report.num_splits == 0:
+            if strategy.strategy_id == "hold_baseline":
+                rankings.append(
+                    StrategyRanking(
+                        strategy_id=strategy.strategy_id,
+                        oos_sharpe_mean=0.0,
+                        oos_max_drawdown_worst=0.0,
+                        oos_cagr_mean=0.0,
+                        score=0.0,
+                        num_splits=0,
+                    )
+                )
             continue
         score = (
             report.oos_sharpe_mean / (1.0 + report.oos_max_drawdown_worst)
