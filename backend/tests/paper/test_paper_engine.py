@@ -199,3 +199,69 @@ class TestPaperEngineStateUpdate:
         )
 
         assert new_state.equity_peak >= state.equity_peak
+
+
+class TestPaperEngineMultiStrategy:
+    def test_step_multi_with_coordinator_no_llm(self) -> None:
+        from trendscend.coordinator.coordinator import Coordinator
+        from trendscend.strategies.hold_baseline import HoldBaselineStrategy
+        from trendscend.strategies.tsmom import TsmomStrategy
+
+        engine = PaperEngine(bot_id=uuid4())
+        strategies = [HoldBaselineStrategy(), TsmomStrategy(fast_ema=5, slow_ema=10)]
+        coordinator = Coordinator(style=RiskStyle.BALANCED, llm_enabled=False)
+        candles = make_candles([100.0 + i * 0.5 for i in range(70)])
+        state = _state()
+
+        result, new_state = engine.step_multi(
+            symbol="BTC/USDT",
+            history=candles[:60],
+            fill_price=Decimal("130"),
+            fill_timestamp=candles[60].timestamp,
+            strategies=strategies,
+            coordinator=coordinator,
+            bot_state=state,
+        )
+
+        assert isinstance(result, PaperCycleResult)
+        assert isinstance(new_state, BotRiskState)
+        assert len(result.decision_record.signals) == len(strategies)
+
+    def test_step_multi_decision_record_logged(self) -> None:
+        from trendscend.coordinator.coordinator import Coordinator
+        from trendscend.strategies.hold_baseline import HoldBaselineStrategy
+
+        engine = PaperEngine(bot_id=uuid4())
+        coordinator = Coordinator(style=RiskStyle.BALANCED, llm_enabled=False)
+        candles = make_candles([100.0] * 70)
+        state = _state()
+
+        engine.step_multi(
+            symbol="BTC/USDT",
+            history=candles[:60],
+            fill_price=Decimal("100"),
+            fill_timestamp=candles[60].timestamp,
+            strategies=[HoldBaselineStrategy()],
+            coordinator=coordinator,
+            bot_state=state,
+        )
+
+        assert len(engine.decision_log) == 1
+
+    def test_original_step_still_works(self) -> None:
+        """Regression: the original step() method must not be broken."""
+        engine = PaperEngine(bot_id=uuid4())
+        from trendscend.strategies.hold_baseline import HoldBaselineStrategy
+
+        candles = make_candles([100.0] * 70)
+        state = _state()
+
+        result, _ = engine.step(
+            symbol="BTC/USDT",
+            history=candles[:60],
+            fill_price=Decimal("100"),
+            fill_timestamp=candles[60].timestamp,
+            strategy=HoldBaselineStrategy(),
+            bot_state=state,
+        )
+        assert isinstance(result, PaperCycleResult)
