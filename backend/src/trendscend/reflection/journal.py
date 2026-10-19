@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Literal
@@ -24,9 +25,17 @@ from anthropic import Anthropic, APITimeoutError
 
 from trendscend.schemas.decisions import DecisionRecord
 from trendscend.schemas.reflection import JournalEntry, ParamChangeProposal
+from trendscend.schemas.risk import RiskOutcome
 
 _LOG = logging.getLogger(__name__)
 _FALLBACK_CONTENT = "Reflection unavailable — LLM call failed or no client configured."
+
+_WIN_OUTCOMES = {RiskOutcome.APPROVED, RiskOutcome.RESIZED}
+
+
+def _sanitize_identifier(value: str, max_len: int = 64) -> str:
+    """Strip non-identifier characters and truncate."""
+    return re.sub(r"[^\w\s,._-]", "", value)[:max_len]
 
 
 def _compute_stats(records: list[DecisionRecord]) -> dict:  # type: ignore[type-arg]
@@ -37,6 +46,8 @@ def _compute_stats(records: list[DecisionRecord]) -> dict:  # type: ignore[type-
       - trades_executed: cycles where an order was placed
       - rejection_reasons: list of most common rejection reasons
       - top_strategies: strategy IDs sorted by signal frequency (descending)
+      - win_rate: proportion of records with an APPROVED or RESIZED risk outcome,
+                  or None if there are no records
     """
     total_cycles = len(records)
     trades_executed = sum(1 for r in records if r.order_ids)
@@ -53,11 +64,25 @@ def _compute_stats(records: list[DecisionRecord]) -> dict:  # type: ignore[type-
             strategy_counts[sig.strategy_id] += 1
     top_strategies = [sid for sid, _ in strategy_counts.most_common(5)]
 
+    # win_rate: proportion of cycles with an APPROVED or RESIZED risk decision.
+    # period_pnl_pct is not computed here — equity curve data is not available
+    # from DecisionRecords alone; it is left as None on JournalEntry.
+    if total_cycles > 0:
+        approved_count = sum(
+            1
+            for r in records
+            if r.risk_decision is not None and r.risk_decision.outcome in _WIN_OUTCOMES
+        )
+        win_rate: float | None = approved_count / total_cycles
+    else:
+        win_rate = None
+
     return {
         "total_cycles": total_cycles,
         "trades_executed": trades_executed,
         "rejection_reasons": rejection_reasons,
         "top_strategies": top_strategies,
+        "win_rate": win_rate,
     }
 
 
@@ -67,8 +92,12 @@ def _build_prompt(
     period_end: datetime,
     period_type: str,
 ) -> str:
-    rejection_str = ", ".join(stats["rejection_reasons"]) or "none"
-    strategy_str = ", ".join(stats["top_strategies"]) or "none"
+    # Sanitize user-influenced strings before including them in the LLM prompt
+    # to reduce prompt-injection surface.
+    rejection_str = ", ".join(_sanitize_identifier(r) for r in stats["rejection_reasons"]) or "none"
+    strategy_str = ", ".join(_sanitize_identifier(sid) for sid in stats["top_strategies"]) or "none"
+    win_rate = stats.get("win_rate")
+    win_rate_str = f"{win_rate:.1%}" if win_rate is not None else "N/A"
     lines = [
         "You are a trading system reflection assistant. Analyze the following"
         " trading period statistics and provide a journal entry.",
@@ -77,6 +106,7 @@ def _build_prompt(
         "TRADE STATISTICS:",
         f"- Total decision cycles: {stats['total_cycles']}",
         f"- Trades executed: {stats['trades_executed']}",
+        f"- Win rate (approved/resized): {win_rate_str}",
         f"- Top rejection reasons: {rejection_str}",
         f"- Active strategies: {strategy_str}",
         "",
@@ -161,6 +191,7 @@ class ReflectionAgent:
                 period_type=period_type,
                 content=_FALLBACK_CONTENT,
                 trade_count=stats["trades_executed"],
+                win_rate=stats.get("win_rate"),
                 generated_at=now,
                 llm_model="none",
             )
@@ -187,6 +218,7 @@ class ReflectionAgent:
                 period_type=period_type,
                 content=_FALLBACK_CONTENT,
                 trade_count=stats["trades_executed"],
+                win_rate=stats.get("win_rate"),
                 generated_at=now,
                 llm_model=self._model,
             )
@@ -199,6 +231,7 @@ class ReflectionAgent:
             period_type=period_type,
             content=journal_content,
             trade_count=stats["trades_executed"],
+            win_rate=stats.get("win_rate"),
             generated_at=now,
             llm_model=self._model,
         )

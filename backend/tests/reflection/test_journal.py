@@ -6,6 +6,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
 from trendscend.schemas.decisions import DecisionRecord
 from trendscend.schemas.market import MarketSnapshot
 from trendscend.schemas.risk import RiskDecision, RiskOutcome
@@ -46,6 +48,61 @@ def _record(
         approved_size_pct=0.4 if approved else None,
         rejection_reason=None if approved else "max_trades_per_day",
         checks_run=["kill_switch_state", "drawdown_kill_switch"],
+        decided_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    snapshot = MarketSnapshot(
+        exchange="binance",
+        symbol="BTC/USDT",
+        timeframe="4h",
+        candles=[],
+        last_trade_price=Decimal("100"),
+        fetched_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    return DecisionRecord(
+        bot_id=uuid4(),
+        cycle_triggered_by="candle_close",
+        triggered_at=datetime(2024, 1, 1, tzinfo=UTC),
+        market_snapshots=[snapshot],
+        regime_labels=[],
+        signals=signals,
+        proposal=proposal,
+        risk_decision=risk_dec,
+        order_ids=["order-1"] if approved else [],
+        completed_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+
+def _record_with_outcome(outcome: RiskOutcome) -> DecisionRecord:
+    """Create a DecisionRecord with the given RiskOutcome."""
+    sid = "tsmom"
+    signals = [
+        Signal(
+            strategy_id=sid,
+            symbol="BTC/USDT",
+            target_exposure=0.8,
+            conviction=0.8,
+            timeframe="4h",
+            generated_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+    ]
+    proposal = TradeProposal(
+        bot_id=uuid4(),
+        symbol="BTC/USDT",
+        action=TradeAction.BUY,
+        size_pct=0.4,
+        stop_pct=0.02,
+        rationale="test",
+        contributing_signals=signals,
+        proposed_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    approved = outcome in {RiskOutcome.APPROVED, RiskOutcome.RESIZED}
+    risk_dec = RiskDecision(
+        id=uuid4(),
+        proposal_id=proposal.id,
+        outcome=outcome,
+        approved_size_pct=0.4 if approved else None,
+        rejection_reason=None if approved else "max_trades_per_day",
+        checks_run=["kill_switch_state"],
         decided_at=datetime(2024, 1, 1, tzinfo=UTC),
     )
     snapshot = MarketSnapshot(
@@ -113,6 +170,23 @@ class TestComputeStats:
         stats = _compute_stats(records)
         # tsmom appears 3 times, breakout 1 time
         assert stats["top_strategies"][0] == "tsmom"
+
+    def test_compute_stats_win_rate(self) -> None:
+        from trendscend.reflection.journal import _compute_stats
+
+        records = [
+            _record_with_outcome(RiskOutcome.APPROVED),
+            _record_with_outcome(RiskOutcome.APPROVED),
+            _record_with_outcome(RiskOutcome.REJECTED),
+        ]
+        stats = _compute_stats(records)
+        assert stats["win_rate"] == pytest.approx(2 / 3)
+
+    def test_compute_stats_no_records_win_rate(self) -> None:
+        from trendscend.reflection.journal import _compute_stats
+
+        stats = _compute_stats([])
+        assert stats["win_rate"] is None
 
 
 class TestReflectionAgent:
@@ -200,3 +274,23 @@ class TestReflectionAgent:
         )
         assert "unavailable" in entry.content.lower()
         assert proposals == []
+
+    def test_win_rate_in_journal_entry(self) -> None:
+        from trendscend.reflection.journal import ReflectionAgent
+
+        # 2 APPROVED + 1 REJECTED → win_rate = 2/3
+        records = [
+            _record_with_outcome(RiskOutcome.APPROVED),
+            _record_with_outcome(RiskOutcome.APPROVED),
+            _record_with_outcome(RiskOutcome.REJECTED),
+        ]
+        agent = ReflectionAgent(llm_client=_mock_llm())
+        entry, _ = agent.generate_journal(
+            records=records,
+            period_start=datetime(2024, 1, 1, tzinfo=UTC),
+            period_end=datetime(2024, 1, 2, tzinfo=UTC),
+            period_type="daily",
+            bot_id=uuid4(),
+        )
+        assert entry.win_rate is not None
+        assert entry.win_rate == pytest.approx(2 / 3)
