@@ -36,7 +36,7 @@ class LLMReviewResult:
     parse_error: bool = False
 
 
-def _summarise_news(news_state: NewsState | None, symbol: str) -> str:
+def summarise_news(news_state: NewsState | None, symbol: str) -> str:
     """Build a safe, sanitised news summary (no raw text or URLs).
 
     Only includes event_type, direction, and severity — never source names,
@@ -53,7 +53,7 @@ def _summarise_news(news_state: NewsState | None, symbol: str) -> str:
     return "; ".join(parts)
 
 
-def _summarise_smart_money(sm_state: SmartMoneyState | None, symbol: str) -> str:
+def summarise_smart_money(sm_state: SmartMoneyState | None, symbol: str) -> str:
     """Build a safe smart-money summary (aggregate stats only).
 
     Only includes aggregate percentages and wallet count — never wallet

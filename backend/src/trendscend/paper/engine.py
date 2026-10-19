@@ -272,7 +272,11 @@ class PaperEngine:
 
         triggered_at = history[-1].timestamp if history else fill_timestamp
 
-        # Generate one signal per strategy for DecisionRecord logging
+        # Generate one signal per strategy for DecisionRecord logging.
+        # These are passed directly to coordinator.propose via pre_computed_signals
+        # to avoid calling generate_signal a second time inside the coordinator.
+        # This is critical for stateful strategies like DcaTrendStrategy, which
+        # accumulates self._current_exposure on every generate_signal call.
         signals = [s.generate_signal(symbol, history, regime) for s in strategies]
 
         # Build proposal via Coordinator (code weighting + optional LLM)
@@ -285,6 +289,7 @@ class PaperEngine:
             smart_money_state=smart_money_state,
             bot_id=self.bot_id,
             current_exposure=self._current_exposure,
+            pre_computed_signals=signals,
         )
 
         # Risk check

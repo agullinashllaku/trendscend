@@ -48,7 +48,8 @@ def _regime_fit_score(strategy_id: str, regime_type: RegimeType | None) -> float
     """Return a regime-fit multiplier in (0, 1] for a strategy in the current regime.
 
     Strategies running outside their preferred regime receive a penalty of 0.3.
-    All strategies receive 0.2 in HIGH_VOL_CHAOS. Unknown strategy IDs get 0.5.
+    In HIGH_VOL_CHAOS, strategies whose preferred regimes include HIGH_VOL_CHAOS
+    (e.g. hold_baseline) score 1.0; all others score 0.2. Unknown strategy IDs get 0.5.
     """
     if regime_type is None:
         return _UNKNOWN_SCORE

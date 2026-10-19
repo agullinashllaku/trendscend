@@ -16,9 +16,9 @@ from anthropic import Anthropic
 
 from trendscend.coordinator.llm_review import (
     LLMReviewResult,
-    _summarise_news,
-    _summarise_smart_money,
     review_proposal,
+    summarise_news,
+    summarise_smart_money,
 )
 from trendscend.coordinator.weighter import weight_signals
 from trendscend.schemas.market import OHLCV
@@ -83,17 +83,37 @@ class Coordinator:
         smart_money_state: SmartMoneyState | None,
         bot_id: UUID,
         current_exposure: float = 0.0,
+        pre_computed_signals: list | None = None,
     ) -> TradeProposal | None:
         """Run all enabled strategy agents and return a combined TradeProposal.
 
         Returns None when no actionable proposal can be built (e.g. all
         signals flat, or combined delta is below threshold).
+
+        Args:
+            strategies:           List of active strategies.
+            symbol:               Trading pair, e.g. "BTC/USDT".
+            candles:              Closed OHLCV bars.
+            regime:               Current regime label.
+            news_state:           Optional news state.
+            smart_money_state:    Optional smart-money state.
+            bot_id:               Bot identifier.
+            current_exposure:     Current fraction of allocation deployed.
+            pre_computed_signals: If provided, use these signals directly instead
+                                  of calling generate_signal again on each strategy.
+                                  Pass this when the caller has already generated
+                                  signals (e.g. step_multi) to avoid double-calling
+                                  stateful strategies like DcaTrendStrategy.
         """
         if not strategies:
             return None
 
-        # Generate one signal per strategy
-        signals = [s.generate_signal(symbol, candles, regime) for s in strategies]
+        # Use pre-computed signals when provided to avoid double-calling stateful
+        # strategies (e.g. DcaTrendStrategy accumulates exposure on each call).
+        if pre_computed_signals is not None:
+            signals = pre_computed_signals
+        else:
+            signals = [s.generate_signal(symbol, candles, regime) for s in strategies]
 
         # Code-side weighting
         proposal = weight_signals(
@@ -117,8 +137,8 @@ class Coordinator:
                 )
             return proposal
 
-        news_summary = _summarise_news(news_state, symbol)
-        sm_summary = _summarise_smart_money(smart_money_state, symbol)
+        news_summary = summarise_news(news_state, symbol)
+        sm_summary = summarise_smart_money(smart_money_state, symbol)
 
         review: LLMReviewResult = review_proposal(
             proposal=proposal,

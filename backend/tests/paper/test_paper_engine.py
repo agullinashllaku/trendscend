@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from trendscend.paper.engine import PaperCycleResult, PaperEngine
 from trendscend.schemas.bot import BotRiskState
 from trendscend.schemas.market import OHLCV
@@ -288,3 +290,59 @@ class TestPaperEngineMultiStrategy:
             bot_state=state,
         )
         assert isinstance(result, PaperCycleResult)
+
+    def test_step_multi_dca_trend_no_double_accumulation(self) -> None:
+        """step_multi must not call generate_signal twice per strategy.
+
+        DcaTrendStrategy accumulates self._current_exposure on every
+        generate_signal call.  Before the fix, step_multi generated signals
+        once for the DecisionRecord then coordinator.propose generated them
+        again internally, doubling the accumulated exposure.  This test
+        verifies the signal stored in the DecisionRecord matches what a fresh
+        standalone call to generate_signal would return (i.e. one increment,
+        not two).
+        """
+        from trendscend.coordinator.coordinator import Coordinator
+        from trendscend.strategies.dca_trend import DcaTrendStrategy
+
+        # Use a short ema_period so we have enough bars (200 bars would require
+        # 200 candles; use 10 instead for a fast test).
+        ema_period = 10
+        contribution_pct = 0.10
+
+        # Create an uptrending series long enough for the EMA period
+        prices = [100.0 + i * 0.5 for i in range(ema_period + 20)]
+        candles = make_candles(prices)
+        history = candles[: ema_period + 10]
+
+        # Reference: what does a fresh strategy say after exactly ONE call?
+        reference_strategy = DcaTrendStrategy(
+            ema_period=ema_period, contribution_pct=contribution_pct
+        )
+        reference_signal = reference_strategy.generate_signal("BTC/USDT", history, regime=None)
+        expected_exposure = reference_signal.target_exposure
+
+        # Now run step_multi with a separate instance — the signal in the
+        # DecisionRecord should match the reference (one call's worth of accumulation).
+        engine = PaperEngine(bot_id=uuid4())
+        dca = DcaTrendStrategy(ema_period=ema_period, contribution_pct=contribution_pct)
+        coordinator = Coordinator(style=RiskStyle.BALANCED, llm_enabled=False)
+        state = _state()
+
+        result, _ = engine.step_multi(
+            symbol="BTC/USDT",
+            history=history,
+            fill_price=Decimal(str(prices[ema_period + 9])),
+            fill_timestamp=candles[ema_period + 10].timestamp,
+            strategies=[dca],
+            coordinator=coordinator,
+            bot_state=state,
+        )
+
+        # The signal in the DecisionRecord must reflect exactly one call's
+        # worth of exposure (contribution_pct), not two.
+        recorded_signal = result.decision_record.signals[0]
+        assert recorded_signal.target_exposure == pytest.approx(expected_exposure), (
+            f"DcaTrendStrategy exposure doubled: got {recorded_signal.target_exposure}, "
+            f"expected {expected_exposure}.  step_multi may be calling generate_signal twice."
+        )

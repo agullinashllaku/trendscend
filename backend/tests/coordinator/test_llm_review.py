@@ -160,7 +160,7 @@ class TestReviewProposal:
         assert result.parse_error is True
 
     def test_summarise_news_no_raw_headlines(self) -> None:
-        from trendscend.coordinator.llm_review import _summarise_news
+        from trendscend.coordinator.llm_review import summarise_news as _summarise_news
 
         event = NewsEvent(
             source="CryptoPanic",
@@ -200,7 +200,9 @@ class TestReviewProposal:
 
 class TestSummariseFunctions:
     def test_summarise_smart_money(self) -> None:
-        from trendscend.coordinator.llm_review import _summarise_smart_money
+        from trendscend.coordinator.llm_review import (
+            summarise_smart_money as _summarise_smart_money,
+        )
 
         state = SmartMoneyState(
             per_asset={
@@ -219,7 +221,7 @@ class TestSummariseFunctions:
         assert "65" in summary or "0.65" in summary
 
     def test_summarise_news_no_asset(self) -> None:
-        from trendscend.coordinator.llm_review import _summarise_news
+        from trendscend.coordinator.llm_review import summarise_news as _summarise_news
 
         state = NewsState(per_asset={}, computed_at=datetime(2024, 1, 1, tzinfo=UTC))
         summary = _summarise_news(state, "ETH/USDT")
