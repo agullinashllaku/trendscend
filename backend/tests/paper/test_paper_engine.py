@@ -248,6 +248,29 @@ class TestPaperEngineMultiStrategy:
 
         assert len(engine.decision_log) == 1
 
+    def test_step_multi_empty_strategies_raises(self) -> None:
+        from trendscend.coordinator.coordinator import Coordinator
+
+        engine = PaperEngine(bot_id=uuid4())
+        coordinator = Coordinator(style=RiskStyle.BALANCED, llm_enabled=False)
+        state = _state()
+        candles = make_candles([100.0] * 70)
+        import pytest
+
+        with pytest.raises(ValueError, match="at least one strategy"):
+            engine.step_multi(
+                symbol="BTC/USDT",
+                history=candles[:60],
+                fill_price=Decimal("100"),
+                fill_timestamp=candles[60].timestamp,
+                strategies=[],
+                coordinator=coordinator,
+                bot_state=state,
+            )
+        # Engine state must not be mutated on the failed call
+        assert engine.decision_log == []
+        assert engine._portfolio is None
+
     def test_original_step_still_works(self) -> None:
         """Regression: the original step() method must not be broken."""
         engine = PaperEngine(bot_id=uuid4())

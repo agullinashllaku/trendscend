@@ -260,6 +260,9 @@ class PaperEngine:
         Returns:
             ``(PaperCycleResult, updated_BotRiskState)``
         """
+        if not strategies:
+            raise ValueError("step_multi requires at least one strategy")
+
         if self._portfolio is None:
             self._portfolio = Portfolio(initial_cash=bot_state.allocation)
             self._portfolio.mark_to_market(
@@ -331,15 +334,9 @@ class PaperEngine:
         )
         self._decision_log.append(record)
 
-        # Populate signal field: use first locally-generated signal, or fall
-        # back to the first contributing signal from the proposal if strategies
-        # list was empty (defensive; callers should always pass ≥1 strategy).
-        if signals:
-            primary_signal = signals[0]
-        elif proposal is not None and proposal.contributing_signals:
-            primary_signal = proposal.contributing_signals[0]
-        else:
-            raise ValueError("step_multi requires at least one strategy")
+        # Primary signal: always the first entry because strategies is non-empty
+        # (guard at top of method ensures this).
+        primary_signal = signals[0]
 
         result = PaperCycleResult(
             signal=primary_signal,
