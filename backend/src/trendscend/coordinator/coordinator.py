@@ -25,7 +25,7 @@ from trendscend.schemas.market import OHLCV
 from trendscend.schemas.news import NewsState
 from trendscend.schemas.regime import RegimeLabel
 from trendscend.schemas.risk import RiskStyle
-from trendscend.schemas.signals import TradeProposal
+from trendscend.schemas.signals import Signal, TradeProposal
 from trendscend.schemas.smart_money import SmartMoneyState
 from trendscend.strategies.base import Strategy
 
@@ -83,7 +83,7 @@ class Coordinator:
         smart_money_state: SmartMoneyState | None,
         bot_id: UUID,
         current_exposure: float = 0.0,
-        pre_computed_signals: list | None = None,
+        pre_computed_signals: list[Signal] | None = None,
     ) -> TradeProposal | None:
         """Run all enabled strategy agents and return a combined TradeProposal.
 

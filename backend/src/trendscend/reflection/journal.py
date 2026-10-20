@@ -205,7 +205,11 @@ class ReflectionAgent:
                 timeout=30.0,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = response.content[0].text.strip()
+            from anthropic.types import TextBlock  # noqa: PLC0415
+
+            raw_text = next(
+                (b.text for b in response.content if isinstance(b, TextBlock)), ""
+            ).strip()
             data = json.loads(raw_text)
             journal_content = str(data["journal"])
             raw_proposals = data.get("proposals", [])

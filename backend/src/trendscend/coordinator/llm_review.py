@@ -140,7 +140,9 @@ def review_proposal(
             timeout=LLM_TIMEOUT_SECS,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw_text = response.content[0].text.strip()
+        from anthropic.types import TextBlock  # noqa: PLC0415
+
+        raw_text = next((b.text for b in response.content if isinstance(b, TextBlock)), "").strip()
     except APITimeoutError:
         return LLMReviewResult(
             adjustment_factor=_FALLBACK_FACTOR,

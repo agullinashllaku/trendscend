@@ -130,16 +130,21 @@ def _record_with_outcome(outcome: RiskOutcome) -> DecisionRecord:
 def _mock_llm(
     journal_text: str = "Normal trading day.", proposals: list[dict] | None = None
 ) -> MagicMock:
+    from anthropic.types import TextBlock
+
     client = MagicMock()
     msg = MagicMock()
-    content = MagicMock()
-    content.text = json.dumps(
-        {
-            "journal": journal_text,
-            "proposals": proposals or [],
-        }
-    )
-    msg.content = [content]
+    msg.content = [
+        TextBlock(
+            type="text",
+            text=json.dumps(
+                {
+                    "journal": journal_text,
+                    "proposals": proposals or [],
+                }
+            ),
+        )
+    ]
     client.messages.create.return_value = msg
     return client
 

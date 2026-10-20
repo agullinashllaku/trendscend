@@ -44,11 +44,11 @@ def _proposal(size_pct: float = 0.45) -> TradeProposal:
 
 def _mock_client(response_text: str) -> MagicMock:
     """Minimal Anthropic client mock returning response_text in content[0].text."""
+    from anthropic.types import TextBlock
+
     client = MagicMock()
     message = MagicMock()
-    content_block = MagicMock()
-    content_block.text = response_text
-    message.content = [content_block]
+    message.content = [TextBlock(type="text", text=response_text)]
     client.messages.create.return_value = message
     return client
 

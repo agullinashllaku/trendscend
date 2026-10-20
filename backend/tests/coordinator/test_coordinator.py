@@ -46,17 +46,22 @@ def _regime(rtype: RegimeType = RegimeType.TRENDING_UP) -> RegimeLabel:
 
 
 def _mock_llm(factor: float = 0.9) -> MagicMock:
+    from anthropic.types import TextBlock
+
     client = MagicMock()
     msg = MagicMock()
-    content = MagicMock()
-    content.text = json.dumps(
-        {
-            "adjustment_factor": factor,
-            "rationale": "All looks good.",
-            "concerns": None,
-        }
-    )
-    msg.content = [content]
+    msg.content = [
+        TextBlock(
+            type="text",
+            text=json.dumps(
+                {
+                    "adjustment_factor": factor,
+                    "rationale": "All looks good.",
+                    "concerns": None,
+                }
+            ),
+        )
+    ]
     client.messages.create.return_value = msg
     return client
 
