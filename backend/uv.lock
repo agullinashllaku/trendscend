@@ -3882,7 +3882,7 @@ requires-dist = [
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.10" },
     { name = "ccxt", specifier = ">=4.4.0" },
     { name = "certifi", specifier = ">=2026.10.19" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", specifier = ">=0.115,<0.163" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.112.0" },
     { name = "ipykernel", marker = "extra == 'research'", specifier = ">=6.29.0" },

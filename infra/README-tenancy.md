@@ -5,6 +5,11 @@ member of a privileged role. Its startup assertion refuses such login roles,
 because any of these would bypass row-level security. Migrations run as the
 owner role; the API runs as a separate login role.
 
+The API login role must also not own the database or the schema (for example
+`public`) that holds the tenancy tables, and must not be a member of their owner
+roles: an owner can drop tables or disable RLS. Startup refuses a login role
+(or session user) that owns or can assume ownership of any of these.
+
 Create the application login role (run as the owner/superuser):
 
 ```sql
