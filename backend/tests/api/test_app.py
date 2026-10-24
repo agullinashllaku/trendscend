@@ -8,6 +8,7 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
+from tests.api.fakes import FakeRedis
 from trendscend.api.app import create_app
 from trendscend.api.settings import Settings, load_settings
 
@@ -59,7 +60,7 @@ class FakePool:
 
 
 def build(env: str = "dev", pool: Any = None) -> Any:
-    app = create_app(make_settings(env), pool=pool or FakePool())
+    app = create_app(make_settings(env), pool=pool or FakePool(), redis=FakeRedis())
 
     @app.get("/boom")
     async def boom() -> None:
@@ -157,19 +158,10 @@ async def test_readyz_ok_and_unavailable() -> None:
 
 
 async def test_readyz_checks_redis_when_set() -> None:
-    class BadRedis:
-        async def ping(self) -> None:
-            raise ConnectionError("x")
-
-    class GoodRedis:
-        async def ping(self) -> bool:
-            return True
-
     app = build()
-    app.state.redis = GoodRedis()
     async with client(app) as c:
         assert (await c.get("/readyz")).status_code == 200
-        app.state.redis = BadRedis()
+        app.state.redis.fail = True
         assert (await c.get("/readyz")).status_code == 503
 
 

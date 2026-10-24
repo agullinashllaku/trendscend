@@ -19,6 +19,7 @@ dependencies = [
     "certifi>=2026.10.19",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "redis>=5.2",
 ]
 
 [project.optional-dependencies]

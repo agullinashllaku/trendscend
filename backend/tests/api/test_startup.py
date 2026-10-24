@@ -5,6 +5,7 @@ from typing import Any
 import asyncpg
 import pytest
 
+from tests.api.fakes import FakeRedis
 from tests.api.test_app import make_settings
 from trendscend.api import app as app_module
 from trendscend.api.app import create_app
@@ -156,7 +157,7 @@ async def test_live_table_owner_rejected(owner_pool: asyncpg.Pool) -> None:
 async def test_live_readyz(owner_pool: asyncpg.Pool) -> None:
     import httpx
 
-    app = create_app(make_settings("dev"), pool=owner_pool)
+    app = create_app(make_settings("dev"), pool=owner_pool, redis=FakeRedis())
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         assert (await c.get("/readyz")).status_code == 200
 

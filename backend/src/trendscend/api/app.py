@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import asyncpg
+import redis.asyncio as aioredis
 from fastapi import FastAPI
 
 from trendscend.api.logging import configure_logging
@@ -21,20 +22,36 @@ from trendscend.api.middleware import (
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
 )
+from trendscend.api.ratelimit import RateLimitMiddleware
 from trendscend.api.routes import health
 from trendscend.api.settings import Settings, load_settings
 from trendscend.api.startup import assert_safe_db_role
 
 
-def create_app(settings: Settings | None = None, *, pool: Any | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, pool: Any | None = None, redis: Any | None = None
+) -> FastAPI:
     cfg = settings if settings is not None else load_settings()
     configure_logging()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        if pool is not None:
-            yield
-            return
+        new_redis = None
+        if redis is None:
+            new_redis = aioredis.from_url(cfg.redis_url.get_secret_value())
+            app.state.redis = new_redis
+        try:
+            if pool is not None:
+                yield
+                return
+            async with _db_lifespan(app):
+                yield
+        finally:
+            if new_redis is not None:
+                await new_redis.aclose()
+
+    @asynccontextmanager
+    async def _db_lifespan(app: FastAPI) -> AsyncIterator[None]:
         new_pool = await asyncpg.create_pool(
             cfg.database_url.get_secret_value(), min_size=1, max_size=10
         )
@@ -60,7 +77,11 @@ def create_app(settings: Settings | None = None, *, pool: Any | None = None) -> 
     app.state.settings = cfg
     if pool is not None:
         app.state.pool = pool
-    # add_middleware prepends: last added is outermost.
+    if redis is not None:
+        app.state.redis = redis
+    # add_middleware prepends: last added is outermost. The rate limiter is
+    # innermost so its 429/503 responses still get request id + security headers.
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AccessLogAndErrorMiddleware)
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

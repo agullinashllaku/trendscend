@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 _TRUTHY = frozenset({"1", "true", "yes"})
 
@@ -19,9 +28,20 @@ class Settings(BaseModel):
     redis_url: SecretStr
     trusted_proxies: frozenset[str] = frozenset()
     environment: Literal["dev", "staging", "prod"]
-    rate_limit_per_minute: int = 60
+    rate_limit_per_minute: int = Field(default=60, gt=0)
     # Dev-only escape hatch for the startup DB-role assertion. Rejected elsewhere.
     allow_unsafe_db_role: bool = False
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _valid_proxies(cls, v: frozenset[str]) -> frozenset[str]:
+        for entry in v:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                # Never echo the entry.
+                raise ValueError("trusted_proxies contains an invalid IP/CIDR entry") from None
+        return v
 
     @model_validator(mode="after")
     def _unsafe_role_only_in_dev(self) -> Settings:
