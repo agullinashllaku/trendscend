@@ -15,6 +15,7 @@
 - Before merging changes to auth/, keys/, risk/, execution/: run /security-review, the risk-auditor or security-reviewer subagent, and /codex:review (adversarial mode for risk/ and execution/).
 - Never delegate changes to auth/, keys/, risk/, execution/ to Codex; delegation only for scoped low-risk tasks in a separate worktree.
 - Codex review gate: off by default; enable only during focused risk/ or execution/ work.
+- **Phase order rule (owner instruction, 2026-10-24):** after every phase/sub-plan PR merges, run the review gates on the merged diff FIRST (`/security-review`, `security-reviewer` subagent, `/codex:review`; plus `risk-auditor` when risk/ or execution/ changed), record findings, and only THEN write the next plan. Each plan's final task list must include these gates as a numbered step before the next plan is started.
 - LLM model IDs (verify against Anthropic docs before use):
   - High-volume / news classifier: claude-haiku-4-5-20251001
   - Coordinator review + Reflection: claude-sonnet-4-6
