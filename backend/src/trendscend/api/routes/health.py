@@ -7,10 +7,13 @@ import asyncio
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from trendscend.api.isolation import public_route
+
 router = APIRouter()
 
 
 @router.get("/healthz")
+@public_route("liveness probe")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
@@ -21,6 +24,7 @@ async def _check_db(request: Request) -> None:
 
 
 @router.get("/readyz")
+@public_route("readiness probe, no user data")
 async def readyz(request: Request) -> JSONResponse:
     try:
         await asyncio.wait_for(_check_db(request), 2)
