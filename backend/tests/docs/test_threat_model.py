@@ -59,3 +59,13 @@ def test_threat_model_names_top_threats() -> None:
     text = DOC.read_text(encoding="utf-8").lower()
     for threat in TOP_THREATS:
         assert threat.lower() in text, f"missing top threat: {threat}"
+
+
+def test_top_threats_table_maps_each_threat_to_mitigation_and_owner() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    rows = [ln for ln in text.splitlines() if ln.startswith("| ") and ln[2].isdigit()]
+    assert len(rows) == len(TOP_THREATS)
+    for row, threat in zip(rows, TOP_THREATS, strict=True):
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        assert threat.lower() in cells[1].lower()
+        assert cells[2] and cells[3], f"{threat}: missing mitigation or owner"

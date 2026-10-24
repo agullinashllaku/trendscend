@@ -4,28 +4,32 @@ Spec: PLAN.md section 3 (architecture) and section 10 (security). Sub-plans: 5a 
 
 ## Top threats (PLAN.md section 10)
 
-1. Stolen exchange API keys
-2. Account takeover
-3. Cross-tenant data access
-4. Compromised dependency
-5. Prompt injection via news/wallet data
-6. Insider/owner access to user data
-7. Runaway orders from exchange API failure
-8. Database theft
+Owner labels: 5a-5e are the Phase 5 sub-plans; "Phase 0 CI" is existing CI in `.github/workflows/ci.yml`; "Deploy/infra (planned, not yet owned)" means a deployment-hardening step before Phase 6 that no Phase 5 sub-plan delivers.
+
+| # | Threat | Primary mitigations | Owner |
+|---|---|---|---|
+| 1 | Stolen exchange API keys | Withdrawal-disabled keys verified on submission, envelope encryption, decrypt only in the user's worker | 5c |
+| 2 | Account takeover | Passkeys or Argon2id plus mandatory TOTP, step-up auth, 48h live-trading lock after recovery | 5b |
+| 3 | Cross-tenant data access | RLS plus app-level user_id checks, cross-user isolation tests per route and table | 5a |
+| 4 | Compromised dependency | Existing: pip-audit, Bandit, gitleaks (pre-commit and CI), Trivy filesystem scan, uv.lock pinned versions. Not yet in place: hash-enforced installs, Dependabot/Renovate, SBOM generation in CI, Trivy container-image scan, npm audit (frontend arrives in 5e) | Phase 0 CI for existing controls; the rest is planned, not yet owned (5e adds npm audit when the frontend lands) |
+| 5 | Prompt injection via news/wallet data | Quoted-data wrapping, tool-less classifier, schema-validated and range-checked output, Risk Manager final | Phase 3-4 code, 5d |
+| 6 | Insider/owner access to user data | Owner role sees operational metrics only, no "view as user", break-glass access logged and notified | 5a, 5d |
+| 7 | Runaway orders from exchange API failure | Sanity checks, circuit breakers, exchange-side stops, per-cycle reconciliation | 5c |
+| 8 | Database theft | Envelope-encrypted keys (a dump holds no usable secrets), RLS, no KYC data stored; encrypted volumes and backups are deploy/infra | 5c for key encryption; volumes and backups planned, not yet owned |
 
 Each component below lists assets, the trust boundary, STRIDE rows (threat, mitigation, implementing sub-plan) and open risks. No secrets appear in this document; all values are placeholders.
 
 ## Web app
 
-**Assets:** session cookie, rendered balances/positions, step-up prompts. **Trust boundary:** user browser to API over TLS; the browser is untrusted.
+**Assets:** session cookie, rendered balances/positions, step-up prompts. **Trust boundary:** user browser to API over TLS (terminated at the deploy edge, not yet owned); the browser is untrusted.
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; HSTS; no SMS 2FA | 5b, 5e |
+| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; TLS and HSTS are set at the deploy edge | 5b; TLS/HSTS: deploy/infra (planned, not yet owned) |
 | Tampering | XSS or CSRF alters settings or approves a trade | Strict CSP, no inline scripts, SameSite=strict httpOnly cookies, CSRF tokens | 5a, 5e |
 | Repudiation | User denies approving a co-pilot trade | Approvals logged to the audit log with session/device id | 5d |
 | Information disclosure | Secrets or balances leaked into frontend bundles or logs | Keys never sent to the frontend; secret scanning (gitleaks); API returns only masked key metadata | 5c, 5e |
-| Denial of service | Request floods against the UI/API | Edge rate limits, per-user and per-IP limits | 5a |
+| Denial of service | Request floods against the UI/API | Per-user and per-IP application rate limits (5a); edge/network-level flood protection is deploy/infra | 5a; edge: planned, not yet owned |
 | Elevation of privilege | Client-side flags unlock live mode or admin views | All authorisation is server-side; live mode needs step-up and config flag; no admin "view as user" | 5b, 5d |
 
 **Open risks:** third-party npm packages (compromised dependency) until SBOM/audit gates are in CI for the frontend; pen test in Phase 6.
@@ -141,11 +145,11 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Direct DB login with leaked credential | Secrets from env/secret manager; least-privilege roles; network firewall | 5a |
+| Spoofing | Direct DB login with leaked credential | Secrets from env/secret manager; least-privilege roles (5a); network firewall allowing only private access is deploy/infra | 5a; firewall: planned, not yet owned |
 | Tampering | Audit rows edited or cross-user writes | RLS on every user table; append-only audit table | 5a, 5d |
 | Repudiation | Admin actions untraceable | Break-glass access logged and notified to the user | 5d |
-| Information disclosure | Database theft or backup theft; insider/owner access | Encrypted volumes and encrypted off-site versioned backups; keys envelope-encrypted so a dump holds no usable secrets; no KYC data stored; owner sees metrics only | 5a, 5c, 6 |
-| Denial of service | Connection exhaustion, slow queries | Pooling, statement timeouts, per-role limits | 5a |
+| Information disclosure | Database theft or backup theft; insider/owner access | Keys envelope-encrypted so a dump holds no usable secrets; no KYC data stored; owner sees metrics only; encrypted volumes and encrypted off-site versioned backups are deploy/infra | 5c for key encryption; volumes and backups: planned, not yet owned (before Phase 6) |
+| Denial of service | Connection exhaustion, slow queries | Pooling, statement timeouts and per-role limits are database configuration at deploy time | Deploy/infra (planned, not yet owned) |
 | Elevation of privilege | App role bypasses RLS | App connects as non-owner role without BYPASSRLS; cross-user DB tests with RLS | 5a |
 
 **Open risks:** monthly restore drill; migration-role handling.
@@ -156,7 +160,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Unauthorised client connects | Auth required, private network, not publicly exposed | 5a |
+| Spoofing | Unauthorised client connects | Redis auth and private-network-only exposure are deploy/infra configuration | Deploy/infra (planned, not yet owned) |
 | Tampering | Queue or counter manipulation | Namespaced per-user keys; no authority decisions rely solely on Redis | 5a, 5d |
 | Repudiation | Lost events on restart | Authoritative records live in Postgres, not Redis | 5d |
 | Information disclosure | Sessions or keys cached in plaintext | No key material or secrets in Redis; sessions stored hashed | 5b, 5c |
