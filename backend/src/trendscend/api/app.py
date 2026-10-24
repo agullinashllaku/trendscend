@@ -35,7 +35,9 @@ def create_app(settings: Settings | None = None, *, pool: Any | None = None) -> 
         if pool is not None:
             yield
             return
-        new_pool = await asyncpg.create_pool(cfg.database_url, min_size=1, max_size=10)
+        new_pool = await asyncpg.create_pool(
+            cfg.database_url.get_secret_value(), min_size=1, max_size=10
+        )
         try:
             # allow_unsafe_db_role is already rejected outside dev by Settings;
             # the environment check here is defence in depth.

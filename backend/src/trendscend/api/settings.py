@@ -6,7 +6,7 @@ import os
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError, model_validator
 
 _TRUTHY = frozenset({"1", "true", "yes"})
 
@@ -14,8 +14,9 @@ _TRUTHY = frozenset({"1", "true", "yes"})
 class Settings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    database_url: str
-    redis_url: str
+    # SecretStr: repr/str/model_dump never reveal DSN passwords.
+    database_url: SecretStr
+    redis_url: SecretStr
     trusted_proxies: frozenset[str] = frozenset()
     environment: Literal["dev", "staging", "prod"]
     rate_limit_per_minute: int = 60

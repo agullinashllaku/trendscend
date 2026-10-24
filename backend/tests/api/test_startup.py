@@ -19,8 +19,13 @@ class FakeConn:
         return self.row
 
 
-def row(s: bool = False, b: bool = False, o: bool = False) -> dict[str, bool]:
-    return {"rolsuper": s, "rolbypassrls": b, "owns_tenancy_tables": o}
+def row(s: bool = False, b: bool = False, o: bool = False, m: bool = False) -> dict[str, bool]:
+    return {
+        "rolsuper": s,
+        "rolbypassrls": b,
+        "controls_rls_tables": o,
+        "can_assume_privileged": m,
+    }
 
 
 async def test_safe_role_passes() -> None:
@@ -32,7 +37,8 @@ async def test_safe_role_passes() -> None:
     [
         (row(s=True), "superuser"),
         (row(b=True), "BYPASSRLS"),
-        (row(o=True), "owns tenancy tables"),
+        (row(o=True), "owns or inherits ownership of RLS tables"),
+        (row(m=True), "member of a superuser/BYPASSRLS role"),
         (None, "not found"),
     ],
 )
@@ -139,7 +145,7 @@ async def test_live_table_owner_rejected(owner_pool: asyncpg.Pool) -> None:
             await conn.execute("GRANT tmp_owner_chk TO CURRENT_USER")
             await conn.execute("ALTER TABLE audit_log OWNER TO tmp_owner_chk")
             await conn.execute("SET LOCAL ROLE tmp_owner_chk")
-            with pytest.raises(RuntimeError, match="owns tenancy tables"):
+            with pytest.raises(RuntimeError, match="RLS tables"):
                 await assert_safe_db_role(conn)
         finally:
             await tx.rollback()
@@ -153,3 +159,40 @@ async def test_live_readyz(owner_pool: asyncpg.Pool) -> None:
     app = create_app(make_settings("dev"), pool=owner_pool)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         assert (await c.get("/readyz")).status_code == 200
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_inherited_ownership_rejected(owner_pool: asyncpg.Pool) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("CREATE ROLE tmp_own NOLOGIN")
+            await conn.execute("CREATE ROLE tmp_member NOLOGIN INHERIT IN ROLE tmp_own")
+            await conn.execute("GRANT tmp_member TO CURRENT_USER")
+            await conn.execute("CREATE TABLE tmp_rls_scratch (id int)")
+            await conn.execute("ALTER TABLE tmp_rls_scratch ENABLE ROW LEVEL SECURITY")
+            await conn.execute("ALTER TABLE tmp_rls_scratch OWNER TO tmp_own")
+            await conn.execute("SET LOCAL ROLE tmp_member")
+            with pytest.raises(RuntimeError, match="RLS tables"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_member_of_bypassrls_role_rejected(owner_pool: asyncpg.Pool) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("CREATE ROLE tmp_bypass NOLOGIN BYPASSRLS")
+            await conn.execute("CREATE ROLE tmp_esc NOLOGIN IN ROLE tmp_bypass")
+            await conn.execute("GRANT tmp_esc TO CURRENT_USER")
+            await conn.execute("SET LOCAL ROLE tmp_esc")
+            with pytest.raises(RuntimeError, match="member of a superuser/BYPASSRLS role"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()

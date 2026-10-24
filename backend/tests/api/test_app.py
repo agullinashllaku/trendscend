@@ -22,8 +22,8 @@ EXPECTED_HEADERS = {
 
 def make_settings(env: str = "dev", **kw: Any) -> Settings:
     return Settings(
-        database_url="postgresql://u:pw@h/db",
-        redis_url="redis://h",
+        database_url="postgresql://u:TOPSECRETDB@h/db",
+        redis_url="redis://:TOPSECRETRD@h",
         environment=env,  # type: ignore[arg-type]
         **kw,
     )
@@ -210,3 +210,10 @@ def test_allow_unsafe_db_role_dev_only() -> None:
             load_settings({**BASE, "ENVIRONMENT": env, "ALLOW_UNSAFE_DB_ROLE": "1"})
     with pytest.raises(ValueError):
         make_settings("prod", allow_unsafe_db_role=True)
+
+
+def test_settings_do_not_leak_dsn_secrets() -> None:
+    s = make_settings()
+    for out in (repr(s), str(s), s.model_dump_json(), str(s.model_dump())):
+        assert "TOPSECRET" not in out
+    assert s.database_url.get_secret_value().endswith("@h/db")
