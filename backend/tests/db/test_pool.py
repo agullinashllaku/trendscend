@@ -8,7 +8,9 @@ could leak to the next one on the same pooled connection. All tests use
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -16,6 +18,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
+from trendscend.db import pool as pool_mod
 from trendscend.db.pool import create_pool, reset_connection
 
 pytestmark = pytest.mark.integration
@@ -167,19 +170,87 @@ async def test_create_pool_passes_reset_hook(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("trendscend.db.pool.asyncpg.create_pool", fake_create_pool)
     assert await create_pool("dsn://x", min_size=2, max_size=3) == "pool"  # type: ignore[comparison-overlap]
-    assert captured == {"dsn": "dsn://x", "min_size": 2, "max_size": 3, "reset": reset_connection}
+    assert captured == {
+        "dsn": "dsn://x",
+        "min_size": 2,
+        "max_size": 3,
+        "reset": reset_connection,
+        "statement_cache_size": 0,
+    }
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_reset_connection_executes_discard_all() -> None:
-    seen: list[str] = []
+async def test_create_pool_disables_statement_cache(owner_pool: asyncpg.Pool) -> None:
+    pool = await create_pool(os.environ["TEST_DATABASE_URL"], min_size=1, max_size=1)
+    try:
+        async with pool.acquire() as c:
+            assert c._con is not None and c._con._stmt_cache.get_max_size() == 0
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_concurrent_use_two_connections_no_stale_statements(owner_pool: asyncpg.Pool) -> None:
+    pool = await create_pool(os.environ["TEST_DATABASE_URL"], min_size=2, max_size=2)
+    start = time.monotonic()
+
+    async def worker(w: int) -> None:
+        for i in range(50):
+            async with pool.acquire() as c:
+                assert not await c.fetchval("SELECT to_regclass('pg_temp.leak')")
+                assert await c.fetchval("SELECT $1::int + $2::int", w, i) == w + i
+                await c.execute("CREATE TEMP TABLE leak (x int)")
+                await c.execute("SET ROLE trendscend_app")
+                await asyncio.sleep(0)
+
+    try:
+        await asyncio.gather(*(worker(w) for w in range(4)))
+        async with pool.acquire() as c:
+            assert await c.fetchval("SELECT current_user") == await c.fetchval(
+                "SELECT session_user"
+            )
+    finally:
+        await pool.close()
+    assert time.monotonic() - start < 3
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_hung_discard_all_is_bounded(
+    owner_pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pool_mod, "RESET_TIMEOUT_S", 0.2)
+    real_execute = asyncpg.Connection.execute
+
+    async def slow_execute(self: asyncpg.Connection, query: str, *a: Any, **kw: Any) -> str:
+        if query == "DISCARD ALL":
+            query = "SELECT pg_sleep(30)"
+        return await real_execute(self, query, *a, **kw)
+
+    pool = await create_pool(os.environ["TEST_DATABASE_URL"], min_size=1, max_size=1)
+    try:
+        c = await pool.acquire()
+        pid = await c.fetchval("SELECT pg_backend_pid()")
+        raw = c._con
+        monkeypatch.setattr(asyncpg.Connection, "execute", slow_execute)
+        t0 = time.monotonic()
+        with pytest.raises(asyncio.TimeoutError):
+            await pool.release(c)
+        assert time.monotonic() - t0 < 3
+        monkeypatch.setattr(asyncpg.Connection, "execute", real_execute)
+        assert raw is not None and raw.is_closed()
+        async with pool.acquire() as c2:
+            assert await c2.fetchval("SELECT pg_backend_pid()") != pid
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reset_connection_executes_discard_all_with_timeout() -> None:
+    seen: list[tuple[str, float | None]] = []
 
     class C:
-        async def execute(self, q: str) -> None:
-            seen.append(q)
-
-        async def reload_schema_state(self) -> None:
-            seen.append("reload")
+        async def execute(self, q: str, timeout: float | None = None) -> None:
+            seen.append((q, timeout))
 
     await reset_connection(C())  # type: ignore[arg-type]
-    assert seen == ["DISCARD ALL", "reload"]
+    assert seen == [("DISCARD ALL", 5.0)]
