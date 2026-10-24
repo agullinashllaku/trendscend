@@ -59,11 +59,28 @@ async def tenant_connection(
     Inputs are validated before a connection is acquired. Commits on success,
     rolls back on any exception. ``role`` (tests/deployments) issues
     ``SET LOCAL ROLE`` so RLS applies even when the pool role bypasses it.
+
+    Security contract (trust boundary):
+
+    1. The yielded object is a live asyncpg connection. This helper cannot stop
+       raw SQL inside the block (COMMIT, ROLLBACK, RESET ROLE, SET ROLE,
+       ``set_config(..., false)``) from ending the transaction or widening
+       access.
+    2. COMMIT or RESET ROLE inside the block drops the ``role=`` downgrade and
+       returns the connection to the pool's login role.
+    3. Therefore repository/endpoint code must never issue transaction-control
+       or session-level SQL (SET/RESET/COMMIT/ROLLBACK/set_config) on this
+       connection.
+    4. The real production safeguard is that the pool's login role is
+       non-superuser, non-BYPASSRLS and owns no tenancy tables (a startup
+       check for this is added in Task 5). ``role=`` exists mainly for tests,
+       where the pool role is a superuser.
     """
     uid = normalise_user_id(user_id)
     quoted_role = _validate_role(role) if role is not None else None
     async with pool.acquire() as conn, conn.transaction():
         await conn.execute("SELECT set_config('app.current_user', $1, true)", uid)
         if quoted_role is not None:
+            # Identifier is regex-validated (fullmatch) and quoted; not user data.
             await conn.execute(f"SET LOCAL ROLE {quoted_role}")  # noqa: S608
         yield conn
