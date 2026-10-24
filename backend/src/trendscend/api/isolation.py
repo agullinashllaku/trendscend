@@ -5,6 +5,13 @@ Every HTTP/WebSocket route must declare either that it is intentionally public
 naming the pytest test that proves cross-user isolation. A CI test fails on any
 undeclared route. Place the decorator BELOW the router decorator so the marker
 is set on the very function object FastAPI registers.
+
+Known limitation: markers are function attributes, so a wrapper that copies
+``__dict__`` (e.g. ``functools.wraps``) inherits the wrapped handler's marker.
+Rule: decorators that wrap route handlers must be applied BELOW the isolation
+marker, never copy another handler's attributes. The collector detects the common
+``functools.wraps`` case (identical marker on the endpoint and its ``__wrapped__``
+chain) and reports it as undeclared; other ``__dict__`` copying is not detectable.
 """
 
 from __future__ import annotations
@@ -24,7 +31,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 PUBLIC_ATTR = "__trendscend_public_reason__"
 USER_SCOPED_ATTR = "__trendscend_isolation_test__"
-_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 Kind = Literal["public", "user_scoped", "undeclared"]
 
@@ -35,6 +42,7 @@ class RouteDeclaration:
     methods: frozenset[str]
     kind: Kind
     reason_or_test: str
+    endpoint_name: str = ""
 
 
 def _split_node_id(node_id: str) -> tuple[str, str]:
@@ -42,7 +50,8 @@ def _split_node_id(node_id: str) -> tuple[str, str]:
     if len(parts) != 2:
         raise ValueError(f"isolation test must be 'path/to/file.py::test_func', got {node_id!r}")
     file_part, func = parts
-    if not file_part.endswith(".py") or file_part == ".py" or not _IDENT.match(func):
+    base = file_part.rsplit("/", 1)[-1]
+    if not file_part.endswith(".py") or base == ".py" or not _IDENT.fullmatch(func):
         raise ValueError(f"isolation test must be 'path/to/file.py::test_func', got {node_id!r}")
     return file_part, func
 
@@ -90,16 +99,41 @@ def verify_isolation_test_exists(node_id: str, root: Path) -> None:
         raise ValueError(f"isolation test function not defined at top level: {node_id}")
 
 
+_INHERITED = "marker inherited via functools.wraps; re-declare on the wrapper"
+
+
+def _inherited(endpoint: Any, attr: str) -> bool:
+    value = getattr(endpoint, attr, None)
+    inner = getattr(endpoint, "__wrapped__", None)
+    seen = 0
+    while inner is not None and seen < 50:
+        if vars(inner).get(attr) == value:
+            return True
+        inner = getattr(inner, "__wrapped__", None)
+        seen += 1
+    return False
+
+
 def _classify(endpoint: Any) -> tuple[Kind, str]:
     public = getattr(endpoint, PUBLIC_ATTR, None)
     scoped = getattr(endpoint, USER_SCOPED_ATTR, None)
     if public is not None and scoped is not None:  # pragma: no cover - decorators forbid this
         return "undeclared", "conflicting markers"
     if public is not None:
+        if _inherited(endpoint, PUBLIC_ATTR):
+            return "undeclared", _INHERITED
         return "public", str(public)
     if scoped is not None:
+        if _inherited(endpoint, USER_SCOPED_ATTR):
+            return "undeclared", _INHERITED
         return "user_scoped", str(scoped)
     return "undeclared", ""
+
+
+def _endpoint_name(endpoint: Any) -> str:
+    mod = getattr(endpoint, "__module__", None)
+    qn = getattr(endpoint, "__qualname__", None)
+    return f"{mod}.{qn}" if mod and qn else ""
 
 
 def _is_builtin_docs(app: FastAPI, route: Any) -> bool:
@@ -113,7 +147,10 @@ def _is_builtin_docs(app: FastAPI, route: Any) -> bool:
         app.swagger_ui_oauth2_redirect_url,
     }
     endpoint = getattr(route, "endpoint", None)
-    return route.path in builtin and getattr(endpoint, "__module__", None) == "fastapi.applications"
+    return (
+        getattr(route, "path", None) in builtin
+        and getattr(endpoint, "__module__", None) == "fastapi.applications"
+    )
 
 
 def _expand(route: Any) -> list[Any]:
@@ -141,7 +178,8 @@ def _walk(routes: list[Any], prefix: str, app: FastAPI | None, out: list[RouteDe
     for raw in routes:
         for item in _expand(raw):
             route = _concrete(item)
-            path = prefix + str(getattr(route, "path", None) or getattr(item, "path", ""))
+            raw_path = getattr(route, "path", None) or getattr(item, "path", None)
+            path = prefix + (str(raw_path) if raw_path else f"<{type(route).__name__}>")
             if isinstance(route, Mount):
                 sub = getattr(route.app, "routes", None)
                 if sub is None:
@@ -155,7 +193,7 @@ def _walk(routes: list[Any], prefix: str, app: FastAPI | None, out: list[RouteDe
             endpoint = getattr(item, "endpoint", None) or getattr(route, "endpoint", None)
             methods = frozenset(getattr(route, "methods", None) or ())
             kind, detail = _classify(endpoint)
-            out.append(RouteDeclaration(path, methods, kind, detail))
+            out.append(RouteDeclaration(path, methods, kind, detail, _endpoint_name(endpoint)))
 
 
 def collect_route_declarations(app: FastAPI) -> list[RouteDeclaration]:

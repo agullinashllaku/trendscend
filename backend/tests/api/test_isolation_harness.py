@@ -250,3 +250,73 @@ def test_nested_included_router_and_websocket_paths() -> None:
     app.include_router(outer, prefix="/v1")
     decls = {d.path: d.kind for d in collect_route_declarations(app)}
     assert decls == {"/v1/in/z": "public", "/v1/w": "undeclared"}
+
+
+def test_host_and_unknown_route_objects_are_undeclared_not_crash() -> None:
+    from starlette.routing import Host
+
+    app = FastAPI()
+    app.router.routes.append(Host("example.com", app=FastAPI()))
+    app.router.routes.append(object())  # type: ignore[arg-type]
+    decls = collect_route_declarations(app)
+    assert len(decls) == 2
+    assert all(d.kind == "undeclared" for d in decls)
+    assert {d.path for d in decls} == {"<Host>", "<object>"}
+
+
+def test_endpoint_name_recorded() -> None:
+    by_path = {d.path: d for d in collect_route_declarations(real_app())}
+    assert by_path["/healthz"].endpoint_name == "trendscend.api.routes.health.healthz"
+
+
+def test_wraps_copied_marker_is_undeclared() -> None:
+    import functools
+
+    @public_route("original")
+    async def declared() -> None: ...
+
+    @functools.wraps(declared)
+    async def wrapper() -> None:
+        await declared()
+
+    app = FastAPI()
+    app.add_api_route("/w", wrapper)
+    (d,) = collect_route_declarations(app)
+    assert d.kind == "undeclared"
+    assert d.reason_or_test == "marker inherited via functools.wraps; re-declare on the wrapper"
+
+
+def test_wrapper_with_own_different_declaration_is_accepted() -> None:
+    import functools
+
+    @public_route("original")
+    async def declared() -> None: ...
+
+    @public_route("wrapper reason")
+    @functools.wraps(declared)
+    async def wrapper() -> None:
+        await declared()
+
+    app = FastAPI()
+    app.add_api_route("/w", wrapper)
+    (d,) = collect_route_declarations(app)
+    assert d.kind == "public" and d.reason_or_test == "wrapper reason"
+
+
+def test_trailing_newline_and_bare_extension_rejected() -> None:
+    for bad in ("a.py::test_x\n", "a.py\n::test_x", "dir/.py::test_x"):
+        with pytest.raises(ValueError):
+            user_scoped_route(bad)
+
+
+def test_path_escape_rejected_even_when_target_exists(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "test_o.py"
+    target.write_text("def test_o():\n    pass\n")
+    with pytest.raises(ValueError, match="escapes root"):
+        verify_isolation_test_exists("../outside/test_o.py::test_o", root)
+    with pytest.raises(ValueError, match="escapes root"):
+        verify_isolation_test_exists(f"{target}::test_o", root)
