@@ -7,9 +7,10 @@ Integration tests require TEST_DATABASE_URL and are skipped when it is not set.
 import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 
+import asyncpg
 import pytest
+import pytest_asyncio
 
 from trendscend.db.candle_repo import CandleRow
 
@@ -132,24 +133,24 @@ class TestInsertCandlesEmptyList:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-async def db_conn():  # type: ignore[return]
-    """Connect to test DB and apply migration, then clean up after tests."""
-    import asyncpg
+@pytest_asyncio.fixture(loop_scope="session")
+async def db_conn(owner_pool: asyncpg.Pool):  # type: ignore[no-untyped-def]
+    """Per-test connection from the shared session pool (migrations already applied).
 
-    url = os.environ["TEST_DATABASE_URL"]
-    conn = await asyncpg.connect(url)
-    migration_sql = (
-        Path(__file__).parent.parent.parent / "src/trendscend/db/migrations/001_candles.sql"
-    )
-    await conn.execute(migration_sql.read_text())
-    yield conn
-    await conn.execute("DELETE FROM candles WHERE symbol LIKE 'TEST/%'")
-    await conn.close()
+    Test rows use symbols prefixed ``TEST/``; they are removed before and after
+    each test so the tests are re-runnable and self-cleaning.
+    """
+    async with owner_pool.acquire() as conn:
+        await conn.execute("DELETE FROM candles WHERE symbol LIKE 'TEST/%'")
+        try:
+            yield conn
+        finally:
+            await conn.execute("DELETE FROM candles WHERE symbol LIKE 'TEST/%'")
 
 
 @SKIP_IF_NO_DB
 @pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
 class TestCandleRepositoryIntegration:
     async def test_insert_candles_returns_count(self, db_conn) -> None:  # type: ignore[no-untyped-def]
         from trendscend.db.candle_repo import insert_candles

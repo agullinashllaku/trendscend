@@ -43,6 +43,30 @@ jobs:
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: trendscend
+          # CI-only throwaway credential for an ephemeral service container; not a secret.
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+          POSTGRES_DB: trendscend_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trendscend -d trendscend_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
@@ -53,6 +77,9 @@ jobs:
         run: uv sync --extra dev
       - name: Run tests with coverage
         working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://trendscend:ci_only_not_a_secret@localhost:5432/trendscend_test
+          TEST_REDIS_URL: redis://localhost:6379/1
         run: uv run pytest --cov-fail-under=80
       - name: Upload coverage
         uses: codecov/codecov-action@v4
