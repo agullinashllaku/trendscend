@@ -7,6 +7,7 @@ crash between the two cannot leave a key without a TTL.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -22,6 +23,8 @@ from trendscend.api.logging import LOGGER_NAME
 
 WINDOW_SECONDS = 60
 UNKNOWN_CLIENT = "unknown"
+REDIS_SOCKET_TIMEOUT_S = 1
+LIMITER_TIMEOUT_S = 2
 _BYPASS_PATHS = frozenset({"/healthz"})
 _MAX_XFF_BYTES = 2048
 
@@ -53,10 +56,13 @@ def _is_trusted(ip: IPAddress, nets: tuple[IPNetwork, ...]) -> bool:
 
 
 def _parse_ip(raw: str) -> IPAddress | None:
+    if "%" in raw:  # IPv6 zone id: never a legitimate client address
+        return None
     try:
-        return ipaddress.ip_address(raw.strip())
+        ip = ipaddress.ip_address(raw.strip())
     except ValueError:
         return None
+    return ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
 
 
 def client_ip(scope: Scope, trusted_proxies: frozenset[str]) -> str:
@@ -145,7 +151,8 @@ class RateLimitMiddleware:
             state = scope["app"].state
             settings = state.settings
             ip = client_ip(scope, settings.trusted_proxies)
-            result = await RateLimiter(state.redis, settings.rate_limit_per_minute).hit(ip)
+            limiter = RateLimiter(state.redis, settings.rate_limit_per_minute)
+            result = await asyncio.wait_for(limiter.hit(ip), timeout=LIMITER_TIMEOUT_S)
         except Exception:
             # Fail closed. Exception text may embed the Redis DSN: not logged.
             _logger.error("rate limiter unavailable")

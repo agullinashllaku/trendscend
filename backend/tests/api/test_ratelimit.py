@@ -194,7 +194,7 @@ async def test_lifespan_creates_and_closes_redis(monkeypatch: pytest.MonkeyPatch
     created: list[FakeRedis] = []
     seen_urls: list[str] = []
 
-    def fake_from_url(url: str) -> FakeRedis:
+    def fake_from_url(url: str, **_kw: Any) -> FakeRedis:
         seen_urls.append(url)
         created.append(FakeRedis())
         return created[0]
@@ -250,3 +250,88 @@ async def test_hit_against_real_redis() -> None:
         async for k in r.scan_iter(match=f"rl:{ip}:*"):
             await r.delete(k)
         await r.aclose()
+
+
+# ---- fix round 1: timeouts, IPv4-mapped, zone ids ----
+async def test_blackholed_redis_returns_503_not_hang(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from trendscend.api import ratelimit
+
+    monkeypatch.setattr(ratelimit, "LIMITER_TIMEOUT_S", 0.05)
+
+    class SlowRedis(FakeRedis):
+        async def eval(self, *_a: Any, **_k: Any) -> list[int]:
+            await asyncio.sleep(5)
+            return [1, 60]
+
+    app, _ = build(redis=SlowRedis())
+    async with client(app) as c:
+        h = await c.get("/healthz")
+        x = await asyncio.wait_for(c.get("/readyz"), 2)
+    assert h.status_code == 200
+    assert x.status_code == 503 and x.json() == {"detail": "service unavailable"}
+    for k, v in EXPECTED_HEADERS.items():
+        assert x.headers[k] == v
+    uuid.UUID(x.headers["x-request-id"])
+
+
+async def test_cancellation_is_not_swallowed() -> None:
+    import asyncio
+
+    from trendscend.api.ratelimit import RateLimitMiddleware
+
+    class CancelRedis(FakeRedis):
+        async def eval(self, *_a: Any, **_k: Any) -> list[int]:
+            raise asyncio.CancelledError
+
+    app, _ = build(redis=CancelRedis())
+    mw = RateLimitMiddleware(lambda *_: None)  # type: ignore[arg-type,return-value]
+    sc = {**scope("1.2.3.4"), "path": "/x", "app": app}
+
+    async def send(_m: Any) -> None:
+        raise AssertionError("no response expected")
+
+    with pytest.raises(asyncio.CancelledError):
+        await mw(sc, None, send)  # type: ignore[arg-type]
+
+
+async def test_lifespan_passes_socket_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import trendscend.api.app as appmod
+    from trendscend.api import ratelimit
+
+    captured: dict[str, Any] = {}
+
+    def fake_from_url(url: str, **kw: Any) -> FakeRedis:
+        captured.update(kw)
+        return FakeRedis()
+
+    monkeypatch.setattr(appmod.aioredis, "from_url", fake_from_url)
+    app = create_app(make_settings(), pool=FakePool())
+    async with app.router.lifespan_context(app):
+        pass
+    assert captured == {
+        "socket_connect_timeout": ratelimit.REDIS_SOCKET_TIMEOUT_S,
+        "socket_timeout": ratelimit.REDIS_SOCKET_TIMEOUT_S,
+    }
+    assert ratelimit.REDIS_SOCKET_TIMEOUT_S == 1 and ratelimit.LIMITER_TIMEOUT_S == 2
+
+
+def test_ipv4_mapped_peer_matches_trusted_v4_network() -> None:
+    assert client_ip(scope("::ffff:10.0.0.1", ["198.51.100.7"]), TRUSTED) == "198.51.100.7"
+    assert client_ip(scope("::ffff:1.2.3.4"), TRUSTED) == "1.2.3.4"
+    assert client_ip(scope("10.0.0.1", ["::ffff:198.51.100.7"]), TRUSTED) == "198.51.100.7"
+
+
+async def test_ipv4_mapped_and_plain_share_key() -> None:
+    clock = Clock(1_000_000_020.0)
+    r = FakeRedis(clock)
+    lim = RateLimiter(r, limit=5, clock=clock)
+    await lim.hit(client_ip(scope("::ffff:1.2.3.4"), frozenset()))
+    await lim.hit(client_ip(scope("1.2.3.4"), frozenset()))
+    assert list(r.counts.values()) == [2]
+
+
+def test_zone_id_in_xff_is_malformed() -> None:
+    assert client_ip(scope("10.1.2.3", ["fe80::1%eth0"]), TRUSTED) == "10.1.2.3"
+    assert client_ip(scope("10.1.2.3", ["6.6.6.6, fe80::1%eth0"]), TRUSTED) == "10.1.2.3"

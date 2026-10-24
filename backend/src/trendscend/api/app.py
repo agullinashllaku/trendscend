@@ -22,7 +22,7 @@ from trendscend.api.middleware import (
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
 )
-from trendscend.api.ratelimit import RateLimitMiddleware
+from trendscend.api.ratelimit import REDIS_SOCKET_TIMEOUT_S, RateLimitMiddleware
 from trendscend.api.routes import health
 from trendscend.api.settings import Settings, load_settings
 from trendscend.api.startup import assert_safe_db_role
@@ -38,7 +38,11 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         new_redis = None
         if redis is None:
-            new_redis = aioredis.from_url(cfg.redis_url.get_secret_value())
+            new_redis = aioredis.from_url(
+                cfg.redis_url.get_secret_value(),
+                socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
+                socket_timeout=REDIS_SOCKET_TIMEOUT_S,
+            )
             app.state.redis = new_redis
         try:
             if pool is not None:
