@@ -73,25 +73,92 @@ async def test_user_sees_only_own_row(owner_pool: asyncpg.Pool, two_users: Users
         assert await conn.fetchval("SELECT current_user") == "trendscend_app"
 
 
-async def test_user_cannot_update_other_user(owner_pool: asyncpg.Pool, two_users: Users) -> None:
+async def test_app_role_cannot_update_users_at_all(
+    owner_pool: asyncpg.Pool, two_users: Users
+) -> None:
     a, b = two_users
-    async with app_tx(owner_pool, a, b, a) as conn:
-        result = await conn.execute("UPDATE users SET email = 'x@test.invalid' WHERE id = $1", b)
-        assert result == "UPDATE 0"
-        own = await conn.execute("UPDATE users SET email = 'me@test.invalid' WHERE id = $1", a)
-        assert own == "UPDATE 1"
+    for stmt in (
+        "UPDATE users SET email = 'x@test.invalid' WHERE id = $1",
+        "UPDATE users SET role = 'owner' WHERE id = $1",
+        "UPDATE users SET status = 'active' WHERE id = $1",
+    ):
+        for target in (a, b):
+            async with app_tx(owner_pool, a, b, a) as conn:
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await conn.execute(stmt, target)
 
 
-async def test_app_role_cannot_escalate_role_or_status(
+async def test_email_existence_not_leaked_via_update(
     owner_pool: asyncpg.Pool, two_users: Users
 ) -> None:
     a, b = two_users
     async with app_tx(owner_pool, a, b, a) as conn:
+        b_email = f"b-{b}@test.invalid"
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await conn.execute("UPDATE users SET role = 'owner' WHERE id = $1", a)
-    async with app_tx(owner_pool, a, b, a) as conn:
-        with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await conn.execute("UPDATE users SET status = 'active' WHERE id = $1", a)
+            await conn.execute("UPDATE users SET email = $1 WHERE id = $2", b_email, a)
+
+
+async def _invite_insert_as(
+    pool: asyncpg.Pool,
+    a: uuid.UUID,
+    b: uuid.UUID,
+    *,
+    role: str,
+    status: str,
+    invite_user: str,
+) -> None:
+    """Make A the given role/status (as owner role), then INSERT an invite as app."""
+    async with pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await _set_user(conn, a)
+            await conn.execute(
+                "UPDATE users SET role = $1, status = $2 WHERE id = $3", role, status, a
+            )
+            await conn.execute("SET LOCAL ROLE trendscend_app")
+            target = a if invite_user == "self" else b
+            await conn.execute(
+                "INSERT INTO invites (id, user_id, token_hash, expires_at) "
+                "VALUES (gen_random_uuid(), $1, $2, now() + interval '1 day')",
+                target,
+                uuid.uuid4().bytes,
+            )
+        finally:
+            await tx.rollback()
+
+
+async def test_regular_user_cannot_create_invite(
+    owner_pool: asyncpg.Pool, two_users: Users
+) -> None:
+    a, b = two_users
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await _invite_insert_as(owner_pool, a, b, role="user", status="active", invite_user="self")
+
+
+async def test_active_owner_can_create_invite(owner_pool: asyncpg.Pool, two_users: Users) -> None:
+    a, b = two_users
+    await _invite_insert_as(owner_pool, a, b, role="owner", status="active", invite_user="self")
+
+
+async def test_disabled_owner_cannot_create_invite(
+    owner_pool: asyncpg.Pool, two_users: Users
+) -> None:
+    a, b = two_users
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await _invite_insert_as(
+            owner_pool, a, b, role="owner", status="disabled", invite_user="self"
+        )
+
+
+async def test_owner_cannot_create_invite_for_other_user(
+    owner_pool: asyncpg.Pool, two_users: Users
+) -> None:
+    a, b = two_users
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await _invite_insert_as(
+            owner_pool, a, b, role="owner", status="active", invite_user="other"
+        )
 
 
 async def test_app_role_cannot_insert_users(owner_pool: asyncpg.Pool, two_users: Users) -> None:
@@ -213,6 +280,13 @@ async def test_all_user_owned_tables_have_forced_rls(owner_pool: asyncpg.Pool) -
                 t["relname"],
             )
             assert n >= 1, f"{t['relname']}: no policy referencing app.current_user"
+            bad = await conn.fetch(
+                "SELECT policyname FROM pg_policies WHERE schemaname = 'public' "
+                "AND tablename = $1 AND cmd IN ('INSERT', 'UPDATE', 'ALL') "
+                "AND (with_check IS NULL OR with_check NOT LIKE '%app.current_user%')",
+                t["relname"],
+            )
+            assert not bad, f"{t['relname']}: writable policy lacks WITH CHECK on app.current_user"
 
 
 async def test_app_role_is_not_superuser_or_bypassrls(owner_pool: asyncpg.Pool) -> None:

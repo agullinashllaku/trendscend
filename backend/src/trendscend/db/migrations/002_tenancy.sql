@@ -10,8 +10,10 @@
 --   * NULLIF(current_setting('app.current_user', true), '')::uuid yields NULL
 --     when the setting is unset or empty, so no row matches: fail closed.
 --   * Least privilege: no INSERT on users (5b adds a SECURITY DEFINER
---     function); UPDATE on users/invites is column-limited so a user cannot
---     promote themselves or re-enable a disabled account.
+--     function) and no UPDATE on users at all (a self-UPDATE of email would leak
+--     whether another email exists via the UNIQUE violation; role/status
+--     self-edits would escalate). invites UPDATE is limited to redeemed_at.
+--     Only an active owner may INSERT invites.
 -- Roles are cluster-wide, so creation is guarded to keep this re-runnable.
 
 DO $$
@@ -63,10 +65,31 @@ CREATE POLICY users_isolation ON users
     USING      (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid)
     WITH CHECK (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid);
 
+-- A policy takes a single command, so SELECT and UPDATE are separate.
+-- (invites_isolation is the pre-split name; dropped for re-runs.)
 DROP POLICY IF EXISTS invites_isolation ON invites;
-CREATE POLICY invites_isolation ON invites
+DROP POLICY IF EXISTS invites_select ON invites;
+CREATE POLICY invites_select ON invites
+    FOR SELECT
+    USING (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid);
+
+DROP POLICY IF EXISTS invites_update ON invites;
+CREATE POLICY invites_update ON invites
+    FOR UPDATE
     USING      (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid)
     WITH CHECK (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid);
+
+-- Only an active owner may create invites (for themselves as inviter).
+DROP POLICY IF EXISTS invites_owner_insert ON invites;
+CREATE POLICY invites_owner_insert ON invites
+    FOR INSERT
+    WITH CHECK (
+        user_id = NULLIF(current_setting('app.current_user', true), '')::uuid
+        AND EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = invites.user_id AND u.role = 'owner' AND u.status = 'active'
+        )
+    );
 
 DROP POLICY IF EXISTS audit_log_isolation ON audit_log;
 CREATE POLICY audit_log_isolation ON audit_log
@@ -95,7 +118,6 @@ CREATE TRIGGER audit_log_immutable_truncate
 REVOKE ALL ON users, invites, audit_log FROM PUBLIC;
 REVOKE ALL ON users, invites, audit_log FROM trendscend_app;
 GRANT SELECT ON users TO trendscend_app;
-GRANT UPDATE (email) ON users TO trendscend_app;
 GRANT SELECT, INSERT ON invites TO trendscend_app;
 GRANT UPDATE (redeemed_at) ON invites TO trendscend_app;
 GRANT SELECT, INSERT ON audit_log TO trendscend_app;
