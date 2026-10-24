@@ -1,6 +1,6 @@
 # Phase 3 Shadow Signal Gate Report
 
-**Generated:** 2026-10-16T14:59:13.057646+00:00
+**Generated:** 2026-10-20T21:32:01.163649+00:00
 **Mode:** fixture
 
 ## A3 News Signal — Directional Accuracy

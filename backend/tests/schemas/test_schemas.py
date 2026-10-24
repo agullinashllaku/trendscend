@@ -589,3 +589,101 @@ class TestSmartMoneyScore:
                 return_24h=None,
                 scored_at=datetime.now(UTC),
             )
+
+
+class TestJournalEntry:
+    def test_valid_daily(self) -> None:
+        from trendscend.schemas.reflection import JournalEntry
+
+        entry = JournalEntry(
+            bot_id=uuid4(),
+            period_start=datetime(2024, 1, 1, tzinfo=UTC),
+            period_end=datetime(2024, 1, 2, tzinfo=UTC),
+            period_type="daily",
+            content="Quiet day, one trade executed.",
+            trade_count=1,
+            win_rate=1.0,
+            period_pnl_pct=0.015,
+            generated_at=datetime(2024, 1, 2, 1, tzinfo=UTC),
+            llm_model="claude-sonnet-4-6",
+        )
+        assert entry.period_type == "daily"
+        assert entry.trade_count == 1
+
+    def test_win_rate_none_allowed(self) -> None:
+        from trendscend.schemas.reflection import JournalEntry
+
+        entry = JournalEntry(
+            bot_id=uuid4(),
+            period_start=datetime(2024, 1, 1, tzinfo=UTC),
+            period_end=datetime(2024, 1, 8, tzinfo=UTC),
+            period_type="weekly",
+            content="No trades this week.",
+            trade_count=0,
+            win_rate=None,
+            period_pnl_pct=None,
+            generated_at=datetime(2024, 1, 8, tzinfo=UTC),
+            llm_model="claude-sonnet-4-6",
+        )
+        assert entry.win_rate is None
+
+    def test_invalid_period_type_rejected(self) -> None:
+        from trendscend.schemas.reflection import JournalEntry
+
+        with pytest.raises(ValidationError):
+            JournalEntry(
+                bot_id=uuid4(),
+                period_start=datetime(2024, 1, 1, tzinfo=UTC),
+                period_end=datetime(2024, 1, 2, tzinfo=UTC),
+                period_type="monthly",  # invalid
+                content="x",
+                trade_count=0,
+                generated_at=datetime(2024, 1, 2, tzinfo=UTC),
+                llm_model="claude-sonnet-4-6",
+            )
+
+
+class TestParamChangeProposal:
+    def test_valid_proposal(self) -> None:
+        from trendscend.schemas.reflection import ParamChangeProposal
+
+        p = ParamChangeProposal(
+            journal_entry_id=uuid4(),
+            strategy_id="tsmom",
+            parameter="fast_ema",
+            current_value="5",
+            proposed_value="8",
+            rationale="Slow EMA captures trend better.",
+            proposed_at=datetime(2024, 1, 8, tzinfo=UTC),
+        )
+        assert p.status == "proposed"
+        assert p.strategy_id == "tsmom"
+
+    def test_status_default_is_proposed(self) -> None:
+        from trendscend.schemas.reflection import ParamChangeProposal
+
+        p = ParamChangeProposal(
+            journal_entry_id=uuid4(),
+            strategy_id="breakout",
+            parameter="lookback",
+            current_value="20",
+            proposed_value="30",
+            rationale="Wider window reduces false breakouts.",
+            proposed_at=datetime(2024, 1, 8, tzinfo=UTC),
+        )
+        assert p.status == "proposed"
+
+    def test_invalid_status_rejected(self) -> None:
+        from trendscend.schemas.reflection import ParamChangeProposal
+
+        with pytest.raises(ValidationError):
+            ParamChangeProposal(
+                journal_entry_id=uuid4(),
+                strategy_id="tsmom",
+                parameter="fast_ema",
+                current_value="5",
+                proposed_value="8",
+                rationale="x",
+                status="deployed",  # not a valid status
+                proposed_at=datetime(2024, 1, 8, tzinfo=UTC),
+            )

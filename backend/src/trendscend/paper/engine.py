@@ -12,8 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from trendscend.coordinator.coordinator import Coordinator
 
 from trendscend.backtester.fees import FeeModel
 from trendscend.backtester.portfolio import InsufficientFundsError, Portfolio
@@ -214,6 +217,134 @@ class PaperEngine:
 
         result = PaperCycleResult(
             signal=signal,
+            proposal=proposal,
+            risk_decision=risk_decision,
+            fill_executed=fill_executed,
+            decision_record=record,
+        )
+        return result, new_state
+
+    def step_multi(
+        self,
+        symbol: str,
+        history: list[OHLCV],
+        fill_price: Decimal,
+        fill_timestamp: datetime,
+        strategies: list[Strategy],
+        coordinator: Coordinator,
+        bot_state: BotRiskState,
+        timeframe: str = "4h",
+        regime: RegimeLabel | None = None,
+        news_state: Any | None = None,
+        smart_money_state: Any | None = None,
+    ) -> tuple[PaperCycleResult, BotRiskState]:
+        """Process one candle using multiple strategies and a Coordinator.
+
+        All strategy signals are generated and combined by the Coordinator.
+        The resulting proposal (if any) flows into the Risk Manager as usual.
+        The DecisionRecord's ``signals`` list contains one Signal per strategy.
+
+        Args:
+            symbol:             Trading pair, e.g. "BTC/USDT".
+            history:            Closed candles up to and including the signal bar.
+            fill_price:         Price to simulate the fill at.
+            fill_timestamp:     Timestamp of the fill bar.
+            strategies:         List of active strategies (each generates one Signal).
+            coordinator:        Coordinator instance (handles weighting + LLM review).
+            bot_state:          Current bot risk state.
+            timeframe:          Bar duration string.
+            regime:             Optional pre-computed regime label.
+            news_state:         Optional news state for coordinator context.
+            smart_money_state:  Optional smart-money state for coordinator context.
+
+        Returns:
+            ``(PaperCycleResult, updated_BotRiskState)``
+        """
+        if not strategies:
+            raise ValueError("step_multi requires at least one strategy")
+
+        if self._portfolio is None:
+            self._portfolio = Portfolio(initial_cash=bot_state.allocation)
+            self._portfolio.mark_to_market(
+                {symbol: history[-1].close if history else fill_price},
+                history[-1].timestamp if history else fill_timestamp,
+            )
+
+        triggered_at = history[-1].timestamp if history else fill_timestamp
+
+        # Generate one signal per strategy for DecisionRecord logging.
+        # These are passed directly to coordinator.propose via pre_computed_signals
+        # to avoid calling generate_signal a second time inside the coordinator.
+        # This is critical for stateful strategies like DcaTrendStrategy, which
+        # accumulates self._current_exposure on every generate_signal call.
+        signals = [s.generate_signal(symbol, history, regime) for s in strategies]
+
+        # Build proposal via Coordinator (code weighting + optional LLM)
+        proposal = coordinator.propose(
+            strategies=strategies,
+            symbol=symbol,
+            candles=history,
+            regime=regime,
+            news_state=news_state,
+            smart_money_state=smart_money_state,
+            bot_id=self.bot_id,
+            current_exposure=self._current_exposure,
+            pre_computed_signals=signals,
+        )
+
+        # Risk check
+        risk_decision: RiskDecision | None = None
+        fill_executed = False
+
+        if proposal is not None:
+            risk_decision = self._risk_manager.evaluate(proposal, bot_state)
+
+            if risk_decision.outcome in {RiskOutcome.APPROVED, RiskOutcome.RESIZED}:
+                approved_size = (
+                    risk_decision.approved_size_pct
+                    if risk_decision.approved_size_pct is not None
+                    else proposal.size_pct
+                )
+                fill_executed = self._execute_fill(
+                    symbol=symbol,
+                    action=proposal.action,
+                    approved_size=approved_size,
+                    fill_price=fill_price,
+                    fill_timestamp=fill_timestamp,
+                )
+
+        self._portfolio.mark_to_market({symbol: fill_price}, fill_timestamp)
+        new_state = self._update_state(bot_state, symbol, fill_executed, fill_price)
+
+        signal_bar_ts = history[-1].timestamp if history else fill_timestamp
+        snapshot = MarketSnapshot(
+            exchange=self._exchange_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            candles=history[-5:] if len(history) >= 5 else history,
+            last_trade_price=fill_price,
+            fetched_at=signal_bar_ts,
+        )
+        record = DecisionRecord(
+            bot_id=self.bot_id,
+            cycle_triggered_by="candle_close",
+            triggered_at=triggered_at,
+            market_snapshots=[snapshot],
+            regime_labels=[regime] if regime is not None else [],
+            signals=signals,
+            proposal=proposal,
+            risk_decision=risk_decision,
+            order_ids=[],
+            completed_at=fill_timestamp,
+        )
+        self._decision_log.append(record)
+
+        # Primary signal: always the first entry because strategies is non-empty
+        # (guard at top of method ensures this).
+        primary_signal = signals[0]
+
+        result = PaperCycleResult(
+            signal=primary_signal,
             proposal=proposal,
             risk_decision=risk_decision,
             fill_executed=fill_executed,
