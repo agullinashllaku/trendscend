@@ -25,7 +25,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; the Strict-Transport-Security header is set by 5a's SecurityHeadersMiddleware; TLS termination is at the deploy edge | 5b; HSTS header: 5a; TLS termination: deploy/infra (planned, not yet owned) |
+| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; HSTS: 5a sets it on API responses, the 5e Next.js app must set it on its own responses; TLS termination is at the deploy edge | 5b; HSTS: 5a (API), 5e (web app); TLS termination: deploy/infra (planned, not yet owned) |
 | Tampering | XSS or CSRF alters settings or approves a trade | Strict CSP, no inline scripts, SameSite=strict httpOnly cookies, CSRF tokens | 5a, 5e |
 | Repudiation | User denies approving a co-pilot trade | Approvals logged to the audit log with session/device id | 5d |
 | Information disclosure | Secrets or balances leaked into frontend bundles or logs | Keys never sent to the frontend; secret scanning (gitleaks); API returns only masked key metadata | 5c, 5e |
@@ -41,7 +41,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Forged or replayed requests as another user | Session auth on every route; user id derived only from the session, never from the body | 5a, 5b |
-| Tampering | Mass assignment, malformed input, duplicate state changes | Pydantic strict validation; idempotency keys on state-changing endpoints | 5a |
+| Tampering | Mass assignment, malformed input, duplicate state changes | Pydantic strict validation (5a); idempotency keys on state-changing endpoints (deferred to 5b, the first state-changing endpoint) | 5a validation; 5b idempotency |
 | Repudiation | No trace of who changed what | Request/audit logging with user id and request id | 5a, 5d |
 | Information disclosure | Cross-tenant data access via IDOR | RLS plus app-level user_id checks; auto-generated cross-user isolation test per route | 5a |
 | Denial of service | Resource exhaustion, expensive queries | Per-IP rate limits (5a); per-user/per-account limits and login lockout (5b); pagination caps and request size limits are planned, first needed when 5b/5d add body-accepting endpoints | 5a per-IP; 5b per-user; caps and size limits: planned, not yet owned |
@@ -161,11 +161,11 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Unauthorised client connects | Redis auth and private-network-only exposure are deploy/infra configuration | Deploy/infra (planned, not yet owned) |
-| Tampering | Queue or counter manipulation | Namespaced per-user keys; no authority decisions rely solely on Redis | 5a, 5d |
+| Tampering | Queue or counter manipulation | Per-user namespaced keys once per-user Redis state exists (5b/5d; 5a defines only per-IP rate-limit keys); no authority decisions rely solely on Redis | 5a per-IP keys; 5b/5d per-user |
 | Repudiation | Lost events on restart | Authoritative records live in Postgres, not Redis | 5d |
 | Information disclosure | Sessions or keys cached in plaintext | No key material or secrets in Redis; sessions stored hashed | 5b, 5c |
 | Denial of service | Redis restart or memory exhaustion | Memory limits and eviction policy are Redis deploy configuration (the existing compose sets maxmemory 256mb allkeys-lru, a dev default only); bots recover and reconcile from Postgres and the exchange (5d) | Limits: deploy/infra (planned, not yet owned); recovery: 5d |
-| Elevation of privilege | Cross-user key collision reads others' state | Keys prefixed with user id; tests for isolation | 5a |
+| Elevation of privilege | Cross-user key collision reads others' state | Per-user keys prefixed with user id and isolation tests, added when per-user Redis state is introduced (5a has only per-IP rate-limit keys) | 5b/5d |
 
 **Open risks:** chaos test of Redis restart (Phase 6).
 
