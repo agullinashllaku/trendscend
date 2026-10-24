@@ -57,8 +57,10 @@ async def tenant_connection(
     """Yield a connection in a transaction scoped to ``user_id``.
 
     Inputs are validated before a connection is acquired. Commits on success,
-    rolls back on any exception. ``role`` (tests/deployments) issues
-    ``SET LOCAL ROLE`` so RLS applies even when the pool role bypasses it.
+    rolls back on any exception. ``role`` (tests only) issues
+    ``SET LOCAL ROLE`` so RLS applies even when the pool role bypasses it. It
+    does NOT make a privileged pool safe: handlers and repositories must never
+    receive a pool whose session_user is privileged.
 
     Security contract (trust boundary):
 
@@ -71,16 +73,21 @@ async def tenant_connection(
     3. Therefore repository/endpoint code must never issue transaction-control
        or session-level SQL (SET/RESET/COMMIT/ROLLBACK/set_config) on this
        connection.
-    4. The real production safeguard is that the pool's login role is
-       non-superuser, non-BYPASSRLS and owns no tenancy tables (a startup
-       check for this is added in Task 5). ``role=`` exists mainly for tests,
-       where the pool role is a superuser.
+    4. COMMIT or ROLLBACK inside the block also clears ``app.current_user``
+       (it is transaction-local), so later statements in the block see no
+       tenant.
+    5. The real production safeguard is that the pool's login role is
+       non-superuser, non-BYPASSRLS and owns no tenancy tables, schema or
+       database; ``trendscend.api.startup.assert_safe_db_role`` enforces this
+       at startup for both the session and the current role. ``role=`` exists
+       for tests, where the pool role is a superuser.
     """
     uid = normalise_user_id(user_id)
     quoted_role = _validate_role(role) if role is not None else None
     async with pool.acquire() as conn, conn.transaction():
         await conn.execute("SELECT set_config('app.current_user', $1, true)", uid)
         if quoted_role is not None:
-            # Identifier is regex-validated (fullmatch) and quoted; not user data.
+            # Safe: the fullmatch regex excludes the double-quote character, so the
+            # quoted identifier needs no escaping.
             await conn.execute(f"SET LOCAL ROLE {quoted_role}")  # noqa: S608
         yield conn

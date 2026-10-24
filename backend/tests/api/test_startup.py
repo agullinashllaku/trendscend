@@ -13,24 +13,56 @@ from trendscend.api.startup import assert_safe_db_role
 
 
 class FakeConn:
-    def __init__(self, row: dict[str, bool] | None) -> None:
-        self.row = row
+    """Fake connection; ``rows`` is what the role query returns (one per role)."""
 
-    async def fetchrow(self, *_a: Any) -> dict[str, bool] | None:
-        return self.row
+    def __init__(self, rows: list[dict[str, bool]] | dict[str, bool] | None) -> None:
+        if rows is None:
+            self.rows: list[dict[str, bool]] = []
+        elif isinstance(rows, dict):
+            self.rows = [rows]
+        else:
+            self.rows = rows
+
+    async def fetch(self, *_a: Any) -> list[dict[str, bool]]:
+        return self.rows
 
 
-def row(s: bool = False, b: bool = False, o: bool = False, m: bool = False) -> dict[str, bool]:
+def row(
+    s: bool = False,
+    b: bool = False,
+    o: bool = False,
+    m: bool = False,
+    sc: bool = False,
+    d: bool = False,
+) -> dict[str, bool]:
     return {
         "rolsuper": s,
         "rolbypassrls": b,
         "controls_rls_tables": o,
         "can_assume_privileged": m,
+        "controls_rls_schema": sc,
+        "controls_database": d,
     }
 
 
 async def test_safe_role_passes() -> None:
     await assert_safe_db_role(FakeConn(row()))  # type: ignore[arg-type]
+
+
+async def test_problems_merge_across_session_and_current_role() -> None:
+    # session_user is clean, current_user (after SET ROLE) is the unsafe one.
+    conn = FakeConn([row(), row(b=True)])
+    with pytest.raises(RuntimeError, match="BYPASSRLS"):
+        await assert_safe_db_role(conn)  # type: ignore[arg-type]
+    # Reverse: session_user unsafe, current_user clean.
+    conn = FakeConn([row(s=True), row()])
+    with pytest.raises(RuntimeError, match="superuser"):
+        await assert_safe_db_role(conn)  # type: ignore[arg-type]
+    # Both rows contribute distinct problems to one message.
+    conn = FakeConn([row(s=True), row(sc=True)])
+    with pytest.raises(RuntimeError) as ei:
+        await assert_safe_db_role(conn)  # type: ignore[arg-type]
+    assert "superuser" in str(ei.value) and "schema" in str(ei.value)
 
 
 @pytest.mark.parametrize(
@@ -40,6 +72,8 @@ async def test_safe_role_passes() -> None:
         (row(b=True), "BYPASSRLS"),
         (row(o=True), "owns or inherits ownership of RLS tables"),
         (row(m=True), "member of a superuser/BYPASSRLS role"),
+        (row(sc=True), "owns or can assume ownership of a schema holding RLS tables"),
+        (row(d=True), "owns or can assume ownership of the database"),
         (None, "not found"),
     ],
 )
@@ -128,10 +162,84 @@ async def test_live_superuser_login_role_rejected(owner_pool: asyncpg.Pool) -> N
 
 @pytest.mark.integration
 @pytest.mark.asyncio(loop_scope="session")
-async def test_live_trendscend_app_passes(owner_pool: asyncpg.Pool) -> None:
+async def test_live_login_role_granted_trendscend_app_passes(owner_pool: asyncpg.Pool) -> None:
+    # The realistic deployment: a LOGIN role that is a member of trendscend_app
+    # and owns nothing. SET SESSION AUTHORIZATION makes session_user it too.
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(
+                "CREATE ROLE zz_api_login LOGIN NOSUPERUSER NOBYPASSRLS IN ROLE trendscend_app"
+            )
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_api_login")
+            await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_superuser_session_with_downgraded_role_rejected(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    # RESET ROLE would regain superuser, so SET ROLE downgrade is not safe.
     async with owner_pool.acquire() as conn, conn.transaction():
         await conn.execute("SET LOCAL ROLE trendscend_app")
-        await assert_safe_db_role(conn)
+        with pytest.raises(RuntimeError, match="superuser"):
+            await assert_safe_db_role(conn)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_noinherit_member_of_table_owner_rejected(owner_pool: asyncpg.Pool) -> None:
+    # NOINHERIT does not stop SET ROLE <owner>, after which RLS can be disabled.
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("CREATE ROLE zz_own NOLOGIN")
+            await conn.execute("CREATE ROLE zz_noinh LOGIN NOINHERIT IN ROLE zz_own")
+            await conn.execute("ALTER TABLE audit_log OWNER TO zz_own")
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_noinh")
+            with pytest.raises(RuntimeError, match="RLS tables"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_schema_owner_rejected(owner_pool: asyncpg.Pool) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("CREATE ROLE zz_schema_own LOGIN IN ROLE trendscend_app")
+            await conn.execute("ALTER SCHEMA public OWNER TO zz_schema_own")
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_schema_own")
+            with pytest.raises(RuntimeError, match="schema holding RLS tables"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_database_owner_rejected(owner_pool: asyncpg.Pool) -> None:
+    # Database ownership is changed inside the transaction and rolled back.
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute("CREATE ROLE zz_db_own LOGIN IN ROLE trendscend_app")
+            dbname = await conn.fetchval("SELECT current_database()")
+            await conn.execute(f'ALTER DATABASE "{dbname}" OWNER TO zz_db_own')  # noqa: S608
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_db_own")
+            with pytest.raises(RuntimeError, match="the database"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
 
 
 @pytest.mark.integration
