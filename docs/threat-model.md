@@ -11,7 +11,7 @@ Owner labels: 5a-5e are the Phase 5 sub-plans; "Phase 0 CI" is existing CI in `.
 | 1 | Stolen exchange API keys | Withdrawal-disabled keys verified on submission, envelope encryption, decrypt only in the user's worker | 5c |
 | 2 | Account takeover | Passkeys or Argon2id plus mandatory TOTP, step-up auth, 48h live-trading lock after recovery | 5b |
 | 3 | Cross-tenant data access | RLS plus app-level user_id checks, cross-user isolation tests per route and table | 5a |
-| 4 | Compromised dependency | Existing: pip-audit, Bandit, gitleaks (pre-commit and CI), Trivy filesystem scan, uv.lock pinned versions. Not yet in place: hash-enforced installs, Dependabot/Renovate, SBOM generation in CI, Trivy container-image scan, npm audit (frontend arrives in 5e) | Phase 0 CI for existing controls; the rest is planned, not yet owned (5e adds npm audit when the frontend lands) |
+| 4 | Compromised dependency | Existing: pip-audit, Bandit, gitleaks (pre-commit and CI), Trivy filesystem scan, uv.lock pinned versions. Not yet in place: hash-enforced installs, Dependabot/Renovate, SBOM generation in CI, Trivy container-image scan, npm audit (planned, once the frontend exists in 5e) | Phase 0 CI for existing controls; the rest is planned, not yet owned (npm audit: planned for 5e) |
 | 5 | Prompt injection via news/wallet data | Quoted-data wrapping, tool-less classifier, schema-validated and range-checked output, Risk Manager final | Phase 3-4 code, 5d |
 | 6 | Insider/owner access to user data | Owner role sees operational metrics only, no "view as user", break-glass access logged and notified | 5a, 5d |
 | 7 | Runaway orders from exchange API failure | Sanity checks, circuit breakers, exchange-side stops, per-cycle reconciliation | 5c |
@@ -25,11 +25,11 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; TLS and HSTS are set at the deploy edge | 5b; TLS/HSTS: deploy/infra (planned, not yet owned) |
+| Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; the Strict-Transport-Security header is set by 5a's SecurityHeadersMiddleware; TLS termination is at the deploy edge | 5b; HSTS header: 5a; TLS termination: deploy/infra (planned, not yet owned) |
 | Tampering | XSS or CSRF alters settings or approves a trade | Strict CSP, no inline scripts, SameSite=strict httpOnly cookies, CSRF tokens | 5a, 5e |
 | Repudiation | User denies approving a co-pilot trade | Approvals logged to the audit log with session/device id | 5d |
 | Information disclosure | Secrets or balances leaked into frontend bundles or logs | Keys never sent to the frontend; secret scanning (gitleaks); API returns only masked key metadata | 5c, 5e |
-| Denial of service | Request floods against the UI/API | Per-user and per-IP application rate limits (5a); edge/network-level flood protection is deploy/infra | 5a; edge: planned, not yet owned |
+| Denial of service | Request floods against the UI/API | Per-IP application rate limiting (5a); per-user/per-account limits are 5b; edge/network-level flood protection is deploy/infra | 5a per-IP; 5b per-user; edge: planned, not yet owned |
 | Elevation of privilege | Client-side flags unlock live mode or admin views | All authorisation is server-side; live mode needs step-up and config flag; no admin "view as user" | 5b, 5d |
 
 **Open risks:** third-party npm packages (compromised dependency) until SBOM/audit gates are in CI for the frontend; pen test in Phase 6.
@@ -44,7 +44,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | Tampering | Mass assignment, malformed input, duplicate state changes | Pydantic strict validation; idempotency keys on state-changing endpoints | 5a |
 | Repudiation | No trace of who changed what | Request/audit logging with user id and request id | 5a, 5d |
 | Information disclosure | Cross-tenant data access via IDOR | RLS plus app-level user_id checks; auto-generated cross-user isolation test per route | 5a |
-| Denial of service | Resource exhaustion, expensive queries | Per-user and per-IP rate limits, pagination caps, request size limits | 5a |
+| Denial of service | Resource exhaustion, expensive queries | Per-IP rate limits (5a); per-user/per-account limits and login lockout (5b); pagination caps and request size limits are planned, first needed when 5b/5d add body-accepting endpoints | 5a per-IP; 5b per-user; caps and size limits: planned, not yet owned |
 | Elevation of privilege | Normal user reaches admin or step-up actions | Role checks, step-up auth for sensitive actions, owner role sees operational metrics only | 5a, 5b |
 
 **Open risks:** OWASP API Top 10 checklist review pending; external pen test (Phase 6).
@@ -90,7 +90,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | Repudiation | Decision cycle without record | Every cycle logged as a DecisionRecord plus audit log | 5d |
 | Information disclosure | Memory/log leak of keys or balances | Non-root, read-only filesystem, log redaction, no keys in prompts | 5c, 5d |
 | Denial of service | One worker starves others | Per-container CPU/memory limits; supervisor restarts; global freeze command | 5d |
-| Elevation of privilege | Container escape to host or neighbours | Minimal images, non-root, no shared volumes, Trivy scans | 5d, 6 |
+| Elevation of privilege | Container escape to host or neighbours | Minimal images, non-root, no shared volumes (5d); Trivy container-image scan is planned | 5d for container layout; image scan: planned, not yet owned |
 
 **Open risks:** Docker Compose supervisor offers weaker isolation than an orchestrator; accepted under 50 users.
 
@@ -164,7 +164,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | Tampering | Queue or counter manipulation | Namespaced per-user keys; no authority decisions rely solely on Redis | 5a, 5d |
 | Repudiation | Lost events on restart | Authoritative records live in Postgres, not Redis | 5d |
 | Information disclosure | Sessions or keys cached in plaintext | No key material or secrets in Redis; sessions stored hashed | 5b, 5c |
-| Denial of service | Redis restart or memory exhaustion | Memory limits, eviction policy, bots recover and reconcile from Postgres and the exchange | 5d, 6 |
+| Denial of service | Redis restart or memory exhaustion | Memory limits and eviction policy are Redis deploy configuration (the existing compose sets maxmemory 256mb allkeys-lru, a dev default only); bots recover and reconcile from Postgres and the exchange (5d) | Limits: deploy/infra (planned, not yet owned); recovery: 5d |
 | Elevation of privilege | Cross-user key collision reads others' state | Keys prefixed with user id; tests for isolation | 5a |
 
 **Open risks:** chaos test of Redis restart (Phase 6).
