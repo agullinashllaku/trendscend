@@ -8,7 +8,8 @@ Date: 2026-10-24. Run per the owner rule in CLAUDE.md: review gates run on the m
 |---|---|
 | `/security-review` (diff-focused, >=0.8 confidence bar) | No high-confidence findings. Attack paths checked: SQL injection in tenant_connection, RLS bypass, startup-check escalation, X-Forwarded-For spoofing, header injection, data exposure, node-id file reads, CI workflow, migration runner. |
 | `security-reviewer` subagent (adversarial, cross-task) | No Critical/High. 6 Medium, 8 Low/Info, plus threat-model overclaims (below). Probed live on PG 16.15 / timescaledb 2.30.2. |
-| `/codex:review` | NOT RUN: `codex` CLI is not installed on this machine (`npm install -g @openai/codex && codex login` needed). Gate remains open. |
+| `/codex:review` (standard, `--base 149e16a --scope branch`) | 2 P1s, triaged below: 1 rejected with reason, 1 accepted. |
+| `/codex:adversarial-review` (db/ + api/ focus) | 1 high: forgeable tenant GUC. Independently confirms M4 from the security-reviewer gate (two providers agree). |
 | `risk-auditor` | Not applicable (no `risk/` or `execution/` changes). |
 
 The two Claude-side gates disagreed in depth: the confidence-thresholded review found nothing, the adversarial one found real issues. The thresholded `/security-review` is not sufficient on its own for db/ and api/ changes.
@@ -41,3 +42,9 @@ The two Claude-side gates disagreed in depth: the confidence-thresholded review 
 ## Info
 
 Global row counts leak via `pg_class.reltuples` / `approximate_row_count` (L2, accepted; add to threat model). Supply chain: `uv.lock` is hash-pinned (2916 sha256 entries) but CI doesn't enforce `--locked` (see M5).
+
+## Codex triage (2026-10-24)
+
+- **ACCEPT, escalated to owner: forgeable tenant identity (adversarial, high; = M4).** `app.current_user` is a plain GUC; any SQL run as the app role (injection, bad repository) can `set_config` it and read another tenant. Two independent providers flagged this. Decision needed for 5b: bind the tenant to an unforgeable value (SECURITY DEFINER `enter_session(token)` checking a hashed session row) vs. accept as a documented residual risk with a lint that only `db/tenant.py` calls `set_config` plus independent injection controls.
+- **REJECT: "startup check rejects a database-owner login" (standard P1, `startup.py:42-47`).** Intentional. On PG15+ the database owner implicitly owns schema `public` (via `pg_database_owner`) and can `DROP TABLE audit_log` (proven live by the security-reviewer gate). `infra/README-tenancy.md` already requires the login role not to own the database or schema. Codex's own comment is internally inconsistent on this point.
+- **ACCEPT, carry to 5b Task 0: no integrated deployment path for the role separation (standard P1, `002_tenancy.sql:28-35`).** Role separation (owner runs migrations; a separate LOGIN role granted `trendscend_app` serves requests) is only documented. Add a bootstrap script (create login role, grant, verify) used by compose/dev, a documented `uvicorn` launch config, and an end-to-end test that boots the app against a DB prepared that way and refuses a misprovisioned one.
