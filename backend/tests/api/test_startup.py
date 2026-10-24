@@ -107,7 +107,7 @@ def patch_pool(monkeypatch: pytest.MonkeyPatch, pool: FakePool) -> None:
     async def fake_create_pool(dsn: str, **_k: Any) -> FakePool:
         return pool
 
-    monkeypatch.setattr(app_module.asyncpg, "create_pool", fake_create_pool)
+    monkeypatch.setattr(app_module, "create_pool", fake_create_pool)
 
 
 async def test_lifespan_fails_startup_on_unsafe_role_and_closes_pool(

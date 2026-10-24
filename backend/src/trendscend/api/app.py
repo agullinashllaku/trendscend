@@ -12,7 +12,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import asyncpg
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 
@@ -26,6 +25,7 @@ from trendscend.api.ratelimit import REDIS_SOCKET_TIMEOUT_S, RateLimitMiddleware
 from trendscend.api.routes import health
 from trendscend.api.settings import Settings, load_settings
 from trendscend.api.startup import assert_safe_db_role
+from trendscend.db.pool import create_pool
 
 
 def create_app(
@@ -56,9 +56,7 @@ def create_app(
 
     @asynccontextmanager
     async def _db_lifespan(app: FastAPI) -> AsyncIterator[None]:
-        new_pool = await asyncpg.create_pool(
-            cfg.database_url.get_secret_value(), min_size=1, max_size=10
-        )
+        new_pool = await create_pool(cfg.database_url.get_secret_value(), min_size=1, max_size=10)
         try:
             # allow_unsafe_db_role is already rejected outside dev by Settings;
             # the environment check here is defence in depth.
