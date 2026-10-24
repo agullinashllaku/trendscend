@@ -82,3 +82,21 @@
 | Ablation harness + gate report | ✓ |
 
 **Next phase:** Phase 5 — web app + Telegram.
+
+## Phase 5a: Tenancy, RLS & API foundations
+**Status:** IN PROGRESS
+**Gate:** cross-user isolation proven by integration tests against real Postgres (RLS forced, non-owner role) and Redis, running in CI.
+
+| Item | Status |
+|------|--------|
+| STRIDE threat model (docs/threat-model.md) | ✓ |
+| SQL migration runner | ✓ |
+| users / invites / audit_log tables with forced RLS | ✓ |
+| Fail-closed tenant_connection (app.current_user, non-owner role) | ✓ |
+| Isolation test helper | ✓ |
+| FastAPI app factory: security headers, request ids, safe errors, db-role startup assertion | ✓ |
+| Per-IP Redis rate limiter (fail-closed) | ✓ |
+| Route isolation harness (CI fails on undeclared routes) | ✓ |
+| CI Postgres (TimescaleDB) and Redis services; integration tests cannot be silently skipped in CI | ✓ |
+
+**Next phase:** 5b — passkey auth.
