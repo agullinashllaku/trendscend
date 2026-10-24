@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
+          version: "0.13.0"
+          checksum: "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
           enable-cache: true
       - name: Install dependencies
         working-directory: backend
@@ -35,6 +37,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
+          version: "0.13.0"
+          checksum: "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
           enable-cache: true
       - name: Install dependencies
         working-directory: backend
@@ -46,6 +50,8 @@ jobs:
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
+    # NOTE: Dependabot does not update workflow service images. Bump these digests
+    # together with infra/docker-compose.yml (test_ci_service_digests_match_compose_digests).
     services:
       postgres:
         image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
@@ -74,6 +80,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
+          version: "0.13.0"
+          checksum: "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
           enable-cache: true
       - name: Install dependencies
         working-directory: backend
@@ -103,6 +111,8 @@ jobs:
           fetch-depth: 0  # full history for gitleaks
       - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
+          version: "0.13.0"
+          checksum: "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
           enable-cache: true
       - name: Install dependencies
         working-directory: backend
