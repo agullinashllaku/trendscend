@@ -84,7 +84,7 @@
 **Next phase:** Phase 5 — web app + Telegram.
 
 ## Phase 5a: Tenancy, RLS & API foundations
-**Status:** IN PROGRESS
+**Status:** COMPLETE (PR #8, merged 2026-10-24; all 5 CI checks green)
 **Gate:** cross-user isolation proven by integration tests against real Postgres (RLS forced, non-owner role) and Redis, running in CI.
 
 | Item | Status |
@@ -99,4 +99,4 @@
 | Route isolation harness (CI fails on undeclared routes) | ✓ |
 | CI Postgres (TimescaleDB) and Redis services; integration tests cannot be silently skipped in CI | ✓ |
 
-**Next phase:** 5b — passkey auth.
+**Next:** 5b — passkey auth (WebAuthn), sessions, recovery, step-up; carry-over list in PR #8. Phase 5 gate is not yet met (needs 5b–5e).
