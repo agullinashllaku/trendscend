@@ -34,6 +34,11 @@ def row(
     m: bool = False,
     sc: bool = False,
     d: bool = False,
+    repl: bool = False,
+    cr: bool = False,
+    sf: bool = False,
+    fn: bool = False,
+    tp: bool = False,
 ) -> dict[str, bool]:
     return {
         "rolsuper": s,
@@ -42,6 +47,11 @@ def row(
         "can_assume_privileged": m,
         "controls_rls_schema": sc,
         "controls_database": d,
+        "rolreplication": repl,
+        "rolcreaterole": cr,
+        "can_use_server_files": sf,
+        "controls_rls_functions": fn,
+        "has_dangerous_table_privs": tp,
     }
 
 
@@ -74,12 +84,28 @@ async def test_problems_merge_across_session_and_current_role() -> None:
         (row(m=True), "member of a superuser/BYPASSRLS role"),
         (row(sc=True), "owns or can assume ownership of a schema holding RLS tables"),
         (row(d=True), "owns or can assume ownership of the database"),
+        (row(repl=True), "REPLICATION"),
+        (row(cr=True), "CREATEROLE"),
+        (row(sf=True), "member of a server-file/program built-in role"),
+        (row(fn=True), "owns or can assume ownership of a trigger function on RLS tables"),
+        (row(tp=True), "holds TRUNCATE/TRIGGER/REFERENCES on RLS tables"),
         (None, "not found"),
     ],
 )
 async def test_unsafe_role_raises(r: dict[str, bool] | None, word: str) -> None:
     with pytest.raises(RuntimeError, match=word):
         await assert_safe_db_role(FakeConn(r))  # type: ignore[arg-type]
+
+
+async def test_new_problems_merge_across_roles_and_carry_no_role_names() -> None:
+    conn = FakeConn([row(repl=True, sf=True), row(cr=True, fn=True, tp=True)])
+    with pytest.raises(RuntimeError) as ei:
+        await assert_safe_db_role(conn)  # type: ignore[arg-type]
+    msg = str(ei.value)
+    for word in ("REPLICATION", "CREATEROLE", "server-file/program", "trigger function"):
+        assert word in msg
+    assert "TRUNCATE" in msg
+    assert "zz_" not in msg and "pg_read_server_files" not in msg
 
 
 class FakePool:
@@ -303,5 +329,123 @@ async def test_live_member_of_bypassrls_role_rejected(owner_pool: asyncpg.Pool) 
             await conn.execute("SET LOCAL ROLE tmp_esc")
             with pytest.raises(RuntimeError, match="member of a superuser/BYPASSRLS role"):
                 await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+_SAFE_CLAUSE = "IN ROLE trendscend_app"
+
+
+async def _reject_live(
+    owner_pool: asyncpg.Pool, setup: list[str], role: str, match: str, *, login: str | None = None
+) -> None:
+    """Run ``setup`` in a rolled-back tx, enter ``role`` as session_user, expect rejection."""
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            for stmt in setup:
+                await conn.execute(stmt)
+            await conn.execute(f"SET LOCAL SESSION AUTHORIZATION {login or role}")
+            with pytest.raises(RuntimeError, match=match) as ei:
+                await assert_safe_db_role(conn)
+            assert "zz_s_" not in str(ei.value)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    "builtin",
+    ["pg_execute_server_program", "pg_read_server_files", "pg_write_server_files"],
+)
+async def test_live_server_file_builtin_member_rejected(
+    owner_pool: asyncpg.Pool, builtin: str
+) -> None:
+    await _reject_live(
+        owner_pool,
+        [f"CREATE ROLE zz_s_sf LOGIN NOSUPERUSER NOBYPASSRLS {_SAFE_CLAUSE}, {builtin}"],
+        "zz_s_sf",
+        "server-file/program built-in role",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_replication_role_rejected(owner_pool: asyncpg.Pool) -> None:
+    await _reject_live(
+        owner_pool,
+        [f"CREATE ROLE zz_s_repl LOGIN REPLICATION {_SAFE_CLAUSE}"],
+        "zz_s_repl",
+        "REPLICATION",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_createrole_role_rejected(owner_pool: asyncpg.Pool) -> None:
+    await _reject_live(
+        owner_pool,
+        [f"CREATE ROLE zz_s_cr LOGIN CREATEROLE {_SAFE_CLAUSE}"],
+        "zz_s_cr",
+        "CREATEROLE",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    "priv,table",
+    [("TRUNCATE", "audit_log"), ("TRIGGER", "users"), ("REFERENCES", "invites")],
+)
+async def test_live_dangerous_table_privilege_rejected(
+    owner_pool: asyncpg.Pool, priv: str, table: str
+) -> None:
+    await _reject_live(
+        owner_pool,
+        [
+            f"CREATE ROLE zz_s_priv LOGIN {_SAFE_CLAUSE}",
+            f"GRANT {priv} ON {table} TO zz_s_priv",
+        ],
+        "zz_s_priv",
+        "TRUNCATE/TRIGGER/REFERENCES on RLS tables",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_trigger_function_owner_member_rejected(owner_pool: asyncpg.Pool) -> None:
+    await _reject_live(
+        owner_pool,
+        [
+            "CREATE ROLE zz_s_own NOLOGIN",
+            f"CREATE ROLE zz_s_mem LOGIN {_SAFE_CLAUSE}, zz_s_own",
+            "CREATE TABLE zz_s_scratch (id int)",
+            "ALTER TABLE zz_s_scratch ENABLE ROW LEVEL SECURITY",
+            "CREATE FUNCTION zz_s_trg() RETURNS trigger LANGUAGE plpgsql "
+            "AS 'BEGIN RETURN NEW; END'",
+            "ALTER FUNCTION zz_s_trg() OWNER TO zz_s_own",
+            "CREATE TRIGGER zz_s_t BEFORE INSERT ON zz_s_scratch "
+            "FOR EACH ROW EXECUTE FUNCTION zz_s_trg()",
+        ],
+        "zz_s_mem",
+        "trigger function on RLS tables",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_realistic_login_role_still_passes(owner_pool: asyncpg.Pool) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(
+                "CREATE ROLE zz_s_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOREPLICATION"
+            )
+            await conn.execute("GRANT trendscend_app TO zz_s_login")
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_s_login")
+            await assert_safe_db_role(conn)
         finally:
             await tx.rollback()
