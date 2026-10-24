@@ -16,9 +16,13 @@ import asyncpg
 # compromised API role escape RLS indirectly: REPLICATION (reads WAL for every
 # tenant), CREATEROLE (can mint/grant roles), the server-file/program built-in
 # roles (read/write server files, run programs), ownership of a trigger function
-# on an RLS table (can rewrite it to act as its definer), and TRUNCATE/TRIGGER/
-# REFERENCES on RLS tables (TRUNCATE ignores RLS; TRIGGER/REFERENCES allow
-# side channels). pg_read_all_data/pg_write_all_data/pg_monitor/pg_signal_backend
+# on an RLS table (can DROP FUNCTION ... CASCADE, removing the audit triggers, or
+# ALTER FUNCTION ... SECURITY DEFINER; CREATE OR REPLACE is not possible here as
+# no role has CREATE on a schema), and TRUNCATE/TRIGGER/REFERENCES on RLS tables
+# (TRUNCATE ignores RLS; column-level REFERENCES counts too, since FK checks
+# ignore RLS and give a cross-tenant existence oracle). A session_replication_role
+# other than 'origin' is rejected because triggers (append-only, RI) do not fire.
+# pg_read_all_data/pg_write_all_data/pg_monitor/pg_signal_backend
 # were verified on PG16 NOT to bypass FORCE RLS and are deliberately not listed.
 _ROLE_QUERY = """
 SELECT r.rolsuper AS rolsuper,
@@ -81,8 +85,10 @@ SELECT r.rolsuper AS rolsuper,
              AND pg_has_role(r.oid, r4.oid, 'MEMBER')
              AND (has_table_privilege(r4.oid, c.oid, 'TRUNCATE')
                   OR has_table_privilege(r4.oid, c.oid, 'TRIGGER')
-                  OR has_table_privilege(r4.oid, c.oid, 'REFERENCES'))
-       ) AS has_dangerous_table_privs
+                  OR has_any_column_privilege(r4.oid, c.oid, 'REFERENCES'))
+       ) AS has_dangerous_table_privs,
+       current_setting('session_replication_role') <> 'origin'
+           AS replication_role_not_origin
 FROM pg_roles r
 WHERE r.rolname IN (session_user, current_user)
 """
@@ -125,9 +131,13 @@ async def assert_safe_db_role(conn: asyncpg.Connection) -> None:
         "owns or can assume ownership of a trigger function on RLS tables",
     )
     flag("has_dangerous_table_privs", "holds TRUNCATE/TRIGGER/REFERENCES on RLS tables")
+    flag("replication_role_not_origin", "session_replication_role is not 'origin'")
     if problems:
         raise RuntimeError(
             "Unsafe database role for the API (" + ", ".join(problems) + "); "
             "connect as a non-superuser, non-BYPASSRLS role that is a member of "
-            "trendscend_app and owns no RLS tables, schema or database"
+            "trendscend_app, has no CREATEROLE/REPLICATION or server-file/program "
+            "roles, owns no RLS tables, schema, database or trigger function on RLS "
+            "tables, holds no TRUNCATE/TRIGGER/REFERENCES on RLS tables, and runs "
+            "with session_replication_role 'origin'"
         )
