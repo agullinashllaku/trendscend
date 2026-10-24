@@ -39,6 +39,7 @@ def row(
     sf: bool = False,
     fn: bool = False,
     tp: bool = False,
+    ro: bool = False,
 ) -> dict[str, bool]:
     return {
         "rolsuper": s,
@@ -52,6 +53,7 @@ def row(
         "can_use_server_files": sf,
         "controls_rls_functions": fn,
         "has_dangerous_table_privs": tp,
+        "replication_role_not_origin": ro,
     }
 
 
@@ -89,6 +91,7 @@ async def test_problems_merge_across_session_and_current_role() -> None:
         (row(sf=True), "member of a server-file/program built-in role"),
         (row(fn=True), "owns or can assume ownership of a trigger function on RLS tables"),
         (row(tp=True), "holds TRUNCATE/TRIGGER/REFERENCES on RLS tables"),
+        (row(ro=True), "session_replication_role is not 'origin'"),
         (None, "not found"),
     ],
 )
@@ -447,5 +450,70 @@ async def test_realistic_login_role_still_passes(owner_pool: asyncpg.Pool) -> No
             await conn.execute("GRANT trendscend_app TO zz_s_login")
             await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_s_login")
             await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_column_level_references_rejected(owner_pool: asyncpg.Pool) -> None:
+    await _reject_live(
+        owner_pool,
+        [
+            f"CREATE ROLE zz_s_priv LOGIN {_SAFE_CLAUSE}",
+            "GRANT REFERENCES (id) ON users TO zz_s_priv",
+        ],
+        "zz_s_priv",
+        "TRUNCATE/TRIGGER/REFERENCES on RLS tables",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_noinherit_member_of_column_references_holder_rejected(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    await _reject_live(
+        owner_pool,
+        [
+            "CREATE ROLE zz_s_holder NOLOGIN",
+            "GRANT REFERENCES (id) ON users TO zz_s_holder",
+            f"CREATE ROLE zz_s_noinh LOGIN NOINHERIT {_SAFE_CLAUSE}, zz_s_holder",
+        ],
+        "zz_s_noinh",
+        "TRUNCATE/TRIGGER/REFERENCES on RLS tables",
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_column_select_on_non_rls_table_passes(owner_pool: asyncpg.Pool) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(f"CREATE ROLE zz_s_col LOGIN {_SAFE_CLAUSE}")
+            await conn.execute("CREATE TABLE zz_s_plain (id int)")
+            await conn.execute("GRANT SELECT (id) ON zz_s_plain TO zz_s_col")
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_s_col")
+            await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_replica_session_replication_role_rejected(owner_pool: asyncpg.Pool) -> None:
+    # Only a superuser can set it; the check is on the effective session value,
+    # which persists across SET LOCAL SESSION AUTHORIZATION to a safe login role.
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(f"CREATE ROLE zz_s_rep LOGIN {_SAFE_CLAUSE}")
+            await conn.execute("SET LOCAL session_replication_role = replica")
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_s_rep")
+            with pytest.raises(RuntimeError, match="session_replication_role is not 'origin'"):
+                await assert_safe_db_role(conn)
         finally:
             await tx.rollback()
