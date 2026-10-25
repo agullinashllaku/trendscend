@@ -14,7 +14,7 @@ Date: 2026-10-24. Run per the owner rule in CLAUDE.md: review gates run on the m
 
 The two Claude-side gates disagreed in depth: the confidence-thresholded review found nothing, the adversarial one found real issues. The thresholded `/security-review` is not sufficient on its own for db/ and api/ changes.
 
-## Must fix before 5b starts (planned as 5b Task 0, "5a hardening")
+## Must fix before 5b starts (shipped as its own PR, "5a hardening", plan `docs/superpowers/plans/2026-10-24-phase5a-hardening.md`)
 
 - **M1 temp objects shadow tables and outlive pooled checkouts.** `TEMP` privilege on the database is granted to PUBLIC; as the app role `CREATE TEMP TABLE audit_log(...)` made unqualified `INSERT INTO audit_log` write to the temp table. asyncpg's pool reset does not `DISCARD TEMP`. Fix: `REVOKE TEMPORARY ON DATABASE ... FROM PUBLIC` in a migration; pool reset that runs `DISCARD ALL`; schema-qualify table names; every future SECURITY DEFINER function gets `SET search_path = pg_catalog, public, pg_temp`.
 - **M2 TimescaleDB functions executable by PUBLIC.** `add_job` succeeded for a LOGIN role (persistence/DoS via SQL injection); `get_telemetry_report()` leaks db metadata. Fix: migration revoking EXECUTE on job/admin/telemetry functions from PUBLIC; `timescaledb.telemetry_level=off` in deploy config.
@@ -47,4 +47,27 @@ Global row counts leak via `pg_class.reltuples` / `approximate_row_count` (L2, a
 
 - **ACCEPT, escalated to owner: forgeable tenant identity (adversarial, high; = M4).** `app.current_user` is a plain GUC; any SQL run as the app role (injection, bad repository) can `set_config` it and read another tenant. Two independent providers flagged this. Decision needed for 5b: bind the tenant to an unforgeable value (SECURITY DEFINER `enter_session(token)` checking a hashed session row) vs. accept as a documented residual risk with a lint that only `db/tenant.py` calls `set_config` plus independent injection controls.
 - **REJECT: "startup check rejects a database-owner login" (standard P1, `startup.py:42-47`).** Intentional. On PG15+ the database owner implicitly owns schema `public` (via `pg_database_owner`) and can `DROP TABLE audit_log` (proven live by the security-reviewer gate). `infra/README-tenancy.md` already requires the login role not to own the database or schema. Codex's own comment is internally inconsistent on this point.
-- **ACCEPT, carry to 5b Task 0: no integrated deployment path for the role separation (standard P1, `002_tenancy.sql:28-35`).** Role separation (owner runs migrations; a separate LOGIN role granted `trendscend_app` serves requests) is only documented. Add a bootstrap script (create login role, grant, verify) used by compose/dev, a documented `uvicorn` launch config, and an end-to-end test that boots the app against a DB prepared that way and refuses a misprovisioned one.
+- **ACCEPT, fixed in the 5a hardening PR: no integrated deployment path for the role separation (standard P1, `002_tenancy.sql:28-35`).** Role separation (owner runs migrations; a separate LOGIN role granted `trendscend_app` serves requests) is only documented. Add a bootstrap script (create login role, grant, verify) used by compose/dev, a documented `uvicorn` launch config, and an end-to-end test that boots the app against a DB prepared that way and refuses a misprovisioned one.
+
+## Hardening status
+
+Fixes ship in the 5a hardening PR (branch `phase-5a-hardening`, plan `docs/superpowers/plans/2026-10-24-phase5a-hardening.md`); status is IN PROGRESS until that PR merges. Commit subjects are cited because hashes change on merge.
+
+| Finding | Status | Fixed by / owner |
+|---|---|---|
+| M1 temp objects shadow tables, outlive pooled checkouts | Fixed | `fix(db): revoke TEMP and TimescaleDB admin functions from PUBLIC (003)`; `fix(db): DISCARD ALL on pooled connection release`; `fix(db): disable statement cache and bound DISCARD ALL in pool reset` (also `revoke CREATE/TEMPORARY on database` in the bootstrap). Open: schema-qualifying names and `SET search_path` for future SECURITY DEFINER functions, owner 5b |
+| M2 TimescaleDB functions executable by PUBLIC | Fixed (migration 003, telemetry off for new sessions) | Remaining TimescaleDB internals and views readable: open risk, revisit before user-defined jobs/policies/caggs |
+| M3 startup role check gaps | Fixed | `fix(api): startup role check covers server-file roles, replication, createrole, trigger/truncate privileges`; `... column REFERENCES and non-origin session_replication_role`. Open: boot-only check, explicit GRANT EXECUTE of `pg_read_file`/`pg_ls_dir`/`lo_*` undetected |
+| M5 CI hardening | Fixed in config; full proof only from the PR's own CI run | `ci: least-privilege permissions, --locked installs, SHA/digest pins, dependabot`; `ci: dependabot docker-compose ecosystem, pin uv version+checksum`. Open: SBOM, Trivy image scan, gitleaks-action binary checksum |
+| M6 IPv6 rate-limit keys | Fixed (/64 bucketing) | `fix(api): rate-limit IPv6 clients by /64`. Open: Redis `noeviction` or a separate Redis for authoritative 5b state, owner 5b |
+| M7 uvicorn proxy headers / access log | Fixed | `fix(api): safe uvicorn launch options; role-check injected pools by default` (`python -m trendscend.api`) |
+| L6 `create_app(pool=...)` skips role check | Fixed | same commit; injected pools are role-checked unless `trust_injected_pool=True` (tests only) |
+| Codex deployment-path P1 | Fixed | `feat(db): role bootstrap and end-to-end deployment contract test` plus SCRAM verifier, adoption guard and ACL follow-ups |
+| Threat-model overclaims and the 002 comment | Fixed (docs only; the 002 change is comment-only, applied databases unaffected) | `docs: correct threat-model ownership, record hardening` |
+| M4 forgeable tenant GUC | Open, DECIDED 2026-10-24 | 5b: bind tenant to an unforgeable session token via a SECURITY DEFINER function |
+| M8 forgeable audit trail | Open | 5d |
+| L1 invite redemption, L4 harness gaps, L5 edge disclosure, L7 pool-access lint | Open | 5b |
+| L2 global row-count leak | Accepted | recorded in the threat model |
+| L3 advisory-lock key can block migrations, `lo_create`, NOTIFY/LISTEN trust, `pg_stat_activity` visibility | Open | 5d |
+| Views over RLS tables / SECURITY DEFINER functions unlinted | Open | 5b |
+| Disabled-user rejection, migration checksum, 422 input echo, route-template logging, Python pin | Open | 5b |

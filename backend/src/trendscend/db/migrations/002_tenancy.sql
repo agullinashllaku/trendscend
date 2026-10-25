@@ -96,7 +96,10 @@ CREATE POLICY audit_log_isolation ON audit_log
     USING      (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid)
     WITH CHECK (user_id = NULLIF(current_setting('app.current_user', true), '')::uuid);
 
--- audit_log is append-only for every role, including the owner.
+-- audit_log append-only guard: these triggers reject UPDATE/DELETE/TRUNCATE for the
+-- app role and for non-superuser owners going through normal DML. They are NOT
+-- absolute: the table owner or a superuser can disable or drop them, and
+-- session_replication_role = replica bypasses them.
 CREATE OR REPLACE FUNCTION audit_log_reject_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

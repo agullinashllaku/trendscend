@@ -4,16 +4,16 @@ Spec: PLAN.md section 3 (architecture) and section 10 (security). Sub-plans: 5a 
 
 ## Top threats (PLAN.md section 10)
 
-Owner labels: 5a-5e are the Phase 5 sub-plans; "Phase 0 CI" is existing CI in `.github/workflows/ci.yml`; "Deploy/infra (planned, not yet owned)" means a deployment-hardening step before Phase 6 that no Phase 5 sub-plan delivers.
+Owner labels: 5a-5e are the Phase 5 sub-plans; "5a-hardening" is the Phase 5a post-merge hardening PR (plan `docs/superpowers/plans/2026-10-24-phase5a-hardening.md`), which delivers only the controls named with that label; "Phase 0 CI" is existing CI in `.github/workflows/ci.yml`; "Deploy/infra (planned, not yet owned)" means a deployment-hardening step before Phase 6 that no Phase 5 sub-plan delivers.
 
 | # | Threat | Primary mitigations | Owner |
 |---|---|---|---|
 | 1 | Stolen exchange API keys | Withdrawal-disabled keys verified on submission, envelope encryption, decrypt only in the user's worker | 5c |
 | 2 | Account takeover | Passkeys or Argon2id plus mandatory TOTP, step-up auth, 48h live-trading lock after recovery | 5b |
 | 3 | Cross-tenant data access | RLS plus app-level user_id checks, cross-user isolation tests per route and table | 5a |
-| 4 | Compromised dependency | Existing: pip-audit, Bandit, gitleaks (pre-commit and CI), Trivy filesystem scan, uv.lock pinned versions. Not yet in place: hash-enforced installs, Dependabot/Renovate, SBOM generation in CI, Trivy container-image scan, npm audit (planned, once the frontend exists in 5e) | Phase 0 CI for existing controls; the rest is planned, not yet owned (npm audit: planned for 5e) |
+| 4 | Compromised dependency | Existing: pip-audit, Bandit, gitleaks (pre-commit and CI), Trivy filesystem scan, `uv.lock` pinned versions with hashes enforced by `uv sync --locked` in CI (a lockfile mismatch fails the build; there is no separate `--require-hashes` pip install), least-privilege workflow token, GitHub Actions pinned by commit SHA, service images pinned by digest, uv version and checksum pinned, Dependabot for actions, uv and docker-compose. Not yet in place: SBOM generation in CI, Trivy container-image scan, checksum verification of the binary that gitleaks-action downloads, npm audit (planned, once the frontend exists in 5e) | Phase 0 CI for the original controls; 5a-hardening for the lockfile, token, pin and Dependabot controls; the rest is planned, not yet owned (npm audit: planned for 5e) |
 | 5 | Prompt injection via news/wallet data | Quoted-data wrapping, tool-less classifier, schema-validated and range-checked output, Risk Manager final | Phase 3-4 code, 5d |
-| 6 | Insider/owner access to user data | Owner role sees operational metrics only, no "view as user", break-glass access logged and notified | 5a, 5d |
+| 6 | Insider/owner access to user data | The database owner role is a superuser: a DBA or anyone holding owner credentials can read all positions and balances in plaintext, and this is NOT mitigated in 5a (only exchange keys are envelope-encrypted, 5c). Planned: no "view as user" feature in the app, break-glass access logged and notified to the user (5d). Owner credentials are used only for migrations and role bootstrap and are never given to the API (5a-hardening documents this in `infra/README-tenancy.md`, it is not enforced) | 5d for break-glass logging; DBA plaintext access: open risk, not yet owned |
 | 7 | Runaway orders from exchange API failure | Sanity checks, circuit breakers, exchange-side stops, per-cycle reconciliation | 5c |
 | 8 | Database theft | Envelope-encrypted keys (a dump holds no usable secrets), RLS, no KYC data stored; encrypted volumes and backups are deploy/infra | 5c for key encryption; volumes and backups planned, not yet owned |
 
@@ -26,7 +26,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Phishing clone of the site steals credentials (account takeover) | Passkeys (WebAuthn) are origin-bound; no SMS 2FA; HSTS: 5a sets it on API responses, the 5e Next.js app must set it on its own responses; TLS termination is at the deploy edge | 5b; HSTS: 5a (API), 5e (web app); TLS termination: deploy/infra (planned, not yet owned) |
-| Tampering | XSS or CSRF alters settings or approves a trade | Strict CSP, no inline scripts, SameSite=strict httpOnly cookies, CSRF tokens | 5a, 5e |
+| Tampering | XSS or CSRF alters settings or approves a trade | Strict CSP, no inline scripts, SameSite=strict httpOnly cookies, CSRF tokens. None exist yet: 5a has no cookies or state-changing endpoints | 5b (cookies, CSRF), 5e (web app CSP) |
 | Repudiation | User denies approving a co-pilot trade | Approvals logged to the audit log with session/device id | 5d |
 | Information disclosure | Secrets or balances leaked into frontend bundles or logs | Keys never sent to the frontend; secret scanning (gitleaks); API returns only masked key metadata | 5c, 5e |
 | Denial of service | Request floods against the UI/API | Per-IP application rate limiting (5a); per-user/per-account limits are 5b; edge/network-level flood protection is deploy/infra | 5a per-IP; 5b per-user; edge: planned, not yet owned |
@@ -40,14 +40,18 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
-| Spoofing | Forged or replayed requests as another user | Session auth on every route; user id derived only from the session, never from the body | 5a, 5b |
-| Tampering | Mass assignment, malformed input, duplicate state changes | Pydantic strict validation (5a); idempotency keys on state-changing endpoints (deferred to 5b, the first state-changing endpoint) | 5a validation; 5b idempotency |
-| Repudiation | No trace of who changed what | Request/audit logging with user id and request id | 5a, 5d |
-| Information disclosure | Cross-tenant data access via IDOR | RLS plus app-level user_id checks; auto-generated cross-user isolation test per route | 5a |
+| Spoofing | Forged or replayed requests as another user | Session auth on every route; user id derived only from the session, never from the body. No session auth exists in 5a | 5b |
+| Tampering | Mass assignment, malformed input, duplicate state changes | Pydantic strict request models (5b, the first body-accepting endpoints; 5a validates only the `Settings` object); idempotency keys on state-changing endpoints (5b, the first state-changing endpoint) | 5b |
+| Repudiation | No trace of who changed what | Request/audit logging with user id and request id. Today access logs carry a request id but no user id, and nothing writes `audit_log` yet | 5b (user id in logs), 5d (audit log writes) |
+| Information disclosure | Cross-tenant data access via IDOR | RLS plus app-level user_id checks. The route declaration harness fails CI on undeclared routes; isolation tests are written per route (5b+), not generated | 5a (RLS, harness); 5b+ (per-route tests) |
 | Denial of service | Resource exhaustion, expensive queries | Per-IP rate limits (5a); per-user/per-account limits and login lockout (5b); pagination caps and request size limits are planned, first needed when 5b/5d add body-accepting endpoints | 5a per-IP; 5b per-user; caps and size limits: planned, not yet owned |
-| Elevation of privilege | Normal user reaches admin or step-up actions | Role checks, step-up auth for sensitive actions, owner role sees operational metrics only | 5a, 5b |
+| Elevation of privilege | Normal user reaches admin or step-up actions | Role checks, step-up auth for sensitive actions, owner role sees operational metrics only. None exist in 5a | 5b |
+| Spoofing | Client address spoofed via forwarded headers to evade rate limits or poison logs | Committed launch options (`python -m trendscend.api`): `proxy_headers=False` and empty `forwarded_allow_ips` so uvicorn never rewrites the client address, the app's own `TRUSTED_PROXIES` logic decides; loopback bind by default; `server_header=False` | 5a-hardening |
+| Information disclosure | Uvicorn access log records full request lines including query strings | Launch options set `access_log=False` and `log_config=None`; `configure_logging()` owns logging (allowlist) | 5a-hardening |
+| Denial of service | One IPv6 client rotates addresses to get unlimited rate-limit buckets and grow Redis keys | Rate-limit keys collapse IPv6 clients to their /64 (IPv4 unchanged), key length capped | 5a-hardening |
+| Spoofing | App created with an injected DB pool silently skips the role check | `create_app(pool=...)` runs the same role assertion on injected pools unless `trust_injected_pool=True`, which is for tests only | 5a-hardening |
 
-**Open risks:** OWASP API Top 10 checklist review pending; external pen test (Phase 6).
+**Open risks:** OWASP API Top 10 checklist review pending; external pen test (Phase 6); the `/docs` page on staging, `/healthz/` redirect reflecting the Host header (no TrustedHost) and client-chosen X-Request-ID are unfixed review findings (L5, owner 5b).
 
 ## Auth
 
@@ -71,7 +75,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Attacker registers keys for another user's account | Key add requires session plus step-up; keys bound to user_id | 5b, 5c |
-| Tampering | Ciphertext swapped between users | AEAD with user id as associated data; RLS on key table | 5a, 5c |
+| Tampering | Ciphertext swapped between users | AEAD with user id as associated data; RLS on key table. No key table exists in 5a | 5c |
 | Repudiation | Key added or removed with no record | Key lifecycle events audited | 5c, 5d |
 | Information disclosure | Stolen exchange API keys via database theft or logs | Per-user data key wrapped by master key held outside DB and app image (KMS/HSM preferred); never logged; decrypted only in that user's worker | 5c |
 | Denial of service | Master key unavailable, all bots stop | Documented key rotation and recovery runbook (`docs/incident-response.md`); bots fail safe | 5c, 6 |
@@ -86,7 +90,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Worker impersonates another user's bot on the data plane | Worker identity and user id fixed at launch; scoped credentials per worker | 5d |
-| Tampering | Compromised worker changes risk limits | Risk Manager deterministic and shared code across modes; limits read from DB under RLS, not worker input | 5d |
+| Tampering | Compromised worker changes risk limits | Risk Manager deterministic and shared code across modes; limits read from DB under RLS, not worker input; the worker DB role is read-only on risk-limit tables | 5d |
 | Repudiation | Decision cycle without record | Every cycle logged as a DecisionRecord plus audit log | 5d |
 | Information disclosure | Memory/log leak of keys or balances | Non-root, read-only filesystem, log redaction, no keys in prompts | 5c, 5d |
 | Denial of service | One worker starves others | Per-container CPU/memory limits; supervisor restarts; global freeze command | 5d |
@@ -135,7 +139,7 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | Repudiation | Unknown data provenance | Source and fetch time stored per record | 5d |
 | Information disclosure | User data leaks into shared tables | Shared tables contain no user data; user tables isolated by RLS | 5a |
 | Denial of service | Feed outage or flood | Caching, per-source rate limits, stale alerts | 5d |
-| Elevation of privilege | Worker writes to shared data | Workers have read-only access; single ingest writer | 5a, 5d |
+| Elevation of privilege | Worker writes to shared data or edits its own risk limits | Workers have read-only access to shared data and to risk-limit tables; single ingest writer; the worker and ingest DB roles do not exist yet | 5d |
 
 **Open risks:** malicious or compromised dependency in ingest libraries.
 
@@ -146,13 +150,18 @@ Each component below lists assets, the trust boundary, STRIDE rows (threat, miti
 | STRIDE | Threat | Mitigation | Owner |
 |---|---|---|---|
 | Spoofing | Direct DB login with leaked credential | Secrets from env/secret manager; least-privilege roles (5a); network firewall allowing only private access is deploy/infra | 5a; firewall: planned, not yet owned |
-| Tampering | Audit rows edited or cross-user writes | RLS on every user table; append-only audit table | 5a, 5d |
+| Tampering | Audit rows edited or cross-user writes | RLS on every user table (5a). `audit_log` has triggers that reject UPDATE/DELETE/TRUNCATE for the app role and non-superuser owners using normal DML; the table owner or a superuser can disable or drop them and `session_replication_role = replica` bypasses them. Nothing writes `audit_log` yet; hardened writes are in the open risks | 5a (RLS); 5d (audit writes, tamper resistance) |
 | Repudiation | Admin actions untraceable | Break-glass access logged and notified to the user | 5d |
-| Information disclosure | Database theft or backup theft; insider/owner access | Keys envelope-encrypted so a dump holds no usable secrets; no KYC data stored; owner sees metrics only; encrypted volumes and encrypted off-site versioned backups are deploy/infra | 5c for key encryption; volumes and backups: planned, not yet owned (before Phase 6) |
+| Information disclosure | Database theft or backup theft; insider/owner access | Keys envelope-encrypted so a dump holds no usable secrets; no KYC data stored; the owner role is a superuser with plaintext access (see top-threat 6, not mitigated in 5a); encrypted volumes and encrypted off-site versioned backups are deploy/infra | 5c for key encryption; volumes and backups: planned, not yet owned (before Phase 6) |
 | Denial of service | Connection exhaustion, slow queries | Pooling, statement timeouts and per-role limits are database configuration at deploy time | Deploy/infra (planned, not yet owned) |
 | Elevation of privilege | App role bypasses RLS | App connects as non-owner role without BYPASSRLS; cross-user DB tests with RLS | 5a |
+| Elevation of privilege | Login role that is over-privileged or can assume a privileged role is accepted at startup | Startup assertion rejects, for session_user AND current_user: superuser, BYPASSRLS, CREATEROLE, REPLICATION, membership of pg_read_server_files / pg_write_server_files / pg_execute_server_program (server-file/program built-in roles), ownership of or membership in the owner of an RLS table, of a schema holding RLS tables, of the database, or of a trigger function on an RLS table, TRUNCATE/TRIGGER/REFERENCES (including column-level REFERENCES) on RLS tables, a non-origin `session_replication_role`, and membership of any superuser/BYPASSRLS role. Evaluated at boot only | 5a-hardening |
+| Elevation of privilege | Ambient PUBLIC privileges let any login role plant temp objects or run TimescaleDB admin functions | Migration 003: REVOKE TEMPORARY ON DATABASE from PUBLIC (temp tables shadowing `audit_log`); REVOKE EXECUTE from PUBLIC on every overload of `add_job`, `alter_job`, `delete_job`, `run_job` and `get_telemetry_report`; `timescaledb.telemetry_level = off` | 5a-hardening |
+| Tampering | Session state planted by one request (temp objects, SET ROLE, GUCs) leaks into later requests on a pooled connection | Pool reset runs `DISCARD ALL` on every release (bounded by a timeout, the connection is dropped on failure) and `statement_cache_size=0` so no stale prepared-statement names remain | 5a-hardening |
+| Information disclosure | Same cross-request session-state leakage reads another request's temp tables or settings | Same `DISCARD ALL` pool reset and `statement_cache_size=0` | 5a-hardening |
+| Spoofing | Misprovisioned or password-leaking API login role | Role bootstrap (`python -m trendscend.db.bootstrap`): owner-run, applies migrations, creates or repairs a NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOREPLICATION login role that is a member of `trendscend_app` only; a client-side SCRAM verifier is sent so the plaintext password never reaches the server or its logs; drift is repaired on re-run; an adopt-guard refuses to take over existing superuser, owning, directly-granted or group roles; an end-to-end test boots the app against such a database and refuses a misprovisioned one | 5a-hardening |
 
-**Open risks:** monthly restore drill; migration-role handling.
+**Open risks:** monthly restore drill; migration-role handling. Forgeable tenant identity (review M4, confirmed by two independent reviewers): `app.current_user` is a plain GUC, so any SQL run as the app role (injection, a bad repository) can `set_config` it and read another tenant; RLS today only protects against forgotten WHERE clauses. DECIDED by the owner on 2026-10-24, owner 5b: bind the tenant to an unforgeable session token via a SECURITY DEFINER function (design in the 5b plan). Audit trail forgeable (M8, owner 5d): it would be written by the same role that serves requests, which can forge entries and burn `audit_log_id_seq`; fix with an `audit_append` SECURITY DEFINER function (action allowlist, size cap), direct INSERT revoked, `ENABLE ALWAYS TRIGGER`, a non-superuser table owner, and a hash chain or external WORM sink. Views over RLS tables and SECURITY DEFINER functions are unlinted (owner 5b): views must be `security_invoker`, definer functions need a pinned `search_path` and a dedicated non-superuser owner. An explicit GRANT EXECUTE of `pg_read_file`, `pg_ls_dir` or `lo_*` to the login role is not detected by the role-membership checks. The role assertion is checked at boot only: privilege drift after boot is undetected. Remaining TimescaleDB internals and information views stay readable by the app role (revisit before user-defined jobs, policies or continuous aggregates). Global row counts leak through `pg_class.reltuples` and `approximate_row_count` (accepted, L2). The gitleaks-action binary download is unverified (CI). `pg_stat_activity` shows other API sessions' SQL text to the shared login role. NOTIFY/LISTEN payloads must not be trusted (owner 5d). The DBA/owner superuser can read all plaintext data (top-threat 6; break-glass logging is 5d).
 
 ## Redis
 
