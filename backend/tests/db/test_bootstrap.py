@@ -543,3 +543,137 @@ async def test_final_membership_verification_failure_rolls_back(
         with pytest.raises(RuntimeError, match="bootstrap failed"):
             await bootstrap_api_role(NoMembershipView(c), name, SecretStr("pw"))  # type: ignore[arg-type]
         assert await c.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", name) is None
+
+
+# ---- fix round 2 -----------------------------------------------------------
+
+
+async def _unchanged_after_refusal(c: asyncpg.Connection, name: str) -> None:
+    with pytest.raises(ValueError, match="refusing to adopt"):
+        await bootstrap_api_role(c, name, SecretStr("pw"))
+    assert await c.fetchval("SELECT rolcreaterole FROM pg_roles WHERE rolname=$1", name)
+    assert await c.fetchval("SELECT rolpassword IS NULL FROM pg_authid WHERE rolname=$1", name)
+
+
+@LOOP
+async def test_refuses_to_adopt_group_role_with_members(owner_pool: asyncpg.Pool) -> None:
+    grp, mem = "zz_b_grp", "zz_b_mem2"
+    async with scratch_role(owner_pool, grp, mem), owner_pool.acquire() as c:
+        await c.execute(f'CREATE ROLE "{grp}" NOLOGIN CREATEROLE')
+        await c.execute(f'CREATE ROLE "{mem}" NOLOGIN')
+        await c.execute(f'GRANT "{grp}" TO "{mem}"')
+        await _unchanged_after_refusal(c, grp)
+        assert await memberships(c, mem) == {grp}
+
+
+@LOOP
+async def test_refuses_to_adopt_role_with_direct_grants(owner_pool: asyncpg.Pool) -> None:
+    name = "zz_b_grants"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        await c.execute(f'CREATE ROLE "{name}" LOGIN CREATEROLE')
+        await c.execute(f'GRANT SELECT ON schema_migrations TO "{name}"')
+        try:
+            await _unchanged_after_refusal(c, name)
+            assert await c.fetchval(
+                "SELECT has_table_privilege($1, 'schema_migrations', 'SELECT')", name
+            )
+        finally:
+            await c.execute(f'REVOKE ALL ON schema_migrations FROM "{name}"')
+
+
+@LOOP
+async def test_rerun_of_bootstrapped_role_succeeds_and_repairs(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    name = "zz_b_rerun"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        await bootstrap_api_role(c, name, SecretStr("pw"))
+        oid = await c.fetchval("SELECT oid FROM pg_roles WHERE rolname=$1", name)
+        assert await c.fetchval("SELECT count(*) FROM pg_shdepend WHERE refobjid=$1", oid) == 0
+        await c.execute(f'ALTER ROLE "{name}" CREATEROLE')
+        await bootstrap_api_role(c, name, SecretStr("pw"))
+        assert not await c.fetchval("SELECT rolcreaterole FROM pg_roles WHERE rolname=$1", name)
+
+
+class IterConn(RecConn):
+    def __init__(self, conn: Any, value: str | None) -> None:
+        super().__init__(conn)
+        self.value = value
+
+    async def fetchval(self, sql: str, *a: Any) -> Any:
+        if "scram_iterations" in sql:
+            return self.value
+        return await super().fetchval(sql, *a)
+
+
+@LOOP
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [("1", 4096), ("2000000", 1_000_000), (None, 4096), ("5000", 5000)],
+)
+async def test_scram_iterations_clamped(
+    owner_pool: asyncpg.Pool, reported: str | None, expected: int
+) -> None:
+    name = "zz_b_iter"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        rec = IterConn(c, reported)
+        await bootstrap_api_role(rec, name, SecretStr("pw"))  # type: ignore[arg-type]
+        v = next(a for a in rec.args if str(a).startswith("SCRAM-SHA-256$"))
+        assert v.split("$")[1].split(":")[0] == str(expected)
+
+
+@LOOP
+async def test_hash_happens_before_transaction_and_lock(owner_pool: asyncpg.Pool) -> None:
+    name = "zz_b_order"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        rec = RecConn(c)
+        await bootstrap_api_role(rec, name, SecretStr("pw"))  # type: ignore[arg-type]
+        assert "scram_iterations" in rec.sql[0]
+        assert "pg_advisory_xact_lock" in rec.sql[1]
+
+
+def _env(monkeypatch: pytest.MonkeyPatch, role: str, url: str) -> None:
+    monkeypatch.setenv("OWNER_DATABASE_URL", url)
+    monkeypatch.setenv("API_DB_ROLE", role)
+    monkeypatch.setenv("API_DB_PASSWORD", "APIPW")
+
+
+def test_main_distinct_hints_for_refusals(
+    owner_pool: asyncpg.Pool,  # noqa: ARG001
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    url = os.environ["TEST_DATABASE_URL"]
+    _env(monkeypatch, "postgres", url)
+    assert main([]) == 2
+    assert "Invalid API_DB_ROLE" in capsys.readouterr().err
+    me = urlsplit(url).username or ""
+    _env(monkeypatch, me, url)
+    assert main([]) == 2
+    err = capsys.readouterr().err
+    assert "owner's own role" in err and "APIPW" not in err
+    # An existing superuser role cannot be adopted (the owner is one here).
+    import asyncio
+
+    async def mk() -> None:
+        c = await asyncpg.connect(url)
+        try:
+            await c.execute('CREATE ROLE "zz_b_hint" SUPERUSER')
+        finally:
+            await c.close()
+
+    async def rm() -> None:
+        c = await asyncpg.connect(url)
+        try:
+            await c.execute('DROP ROLE IF EXISTS "zz_b_hint"')
+        finally:
+            await c.close()
+
+    asyncio.run(mk())
+    try:
+        _env(monkeypatch, "zz_b_hint", url)
+        assert main([]) == 2
+        err = capsys.readouterr().err
+        assert "existing role that cannot be adopted" in err and "APIPW" not in err
+    finally:
+        asyncio.run(rm())
