@@ -1,7 +1,7 @@
 """Per-IP fixed-window rate limiting backed by Redis. Fails closed.
 
-Keys are ``rl:{ip}:{minute_epoch}`` only: no user ids, tokens or request
-content ever enter Redis keys. INCR and EXPIRE run inside one Lua script so a
+Keys are ``rl:{rate_limit_key(ip)}:{minute_epoch}`` (IPv6 by /64) only: no user
+ids, tokens or request content ever enter Redis keys. INCR and EXPIRE run inside one Lua script so a
 crash between the two cannot leave a key without a TTL.
 """
 

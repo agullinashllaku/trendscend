@@ -56,6 +56,31 @@ CREATE ROLE trendscend_api LOGIN PASSWORD '<from secret manager>'
 GRANT trendscend_app TO trendscend_api;
 ```
 
+## Running the API
+
+```sh
+python -m trendscend.api   # needs the package installed, or PYTHONPATH=backend/src
+```
+
+Environment:
+
+- `DATABASE_URL`: DSN of the **login role** (`API_DB_ROLE`). URL-encode special
+  characters in the password (`/`, `#`, `@`, `:`), e.g.
+  `urllib.parse.quote(password, safe="")`. A malformed or unreachable URL fails
+  startup with a generic message that never shows the value.
+- `REDIS_URL`: Redis DSN (same encoding rule).
+- `ENVIRONMENT`: `dev`, `staging` or `prod`.
+- `TRUSTED_PROXIES`: IPs/CIDRs of reverse proxies whose forwarded headers are trusted.
+- `API_HOST`: bind address, default `127.0.0.1`. Bind `0.0.0.0` only inside a
+  container behind a TLS-terminating proxy, with `TRUSTED_PROXIES` set.
+- `API_PORT`: default `8000`.
+
+The API never gets `OWNER_DATABASE_URL`; only the bootstrap/migration step does.
+The `timescaledb` extension must exist before the bootstrap runs (otherwise the
+bootstrap fails with only its generic message). The adopt-guard ignores CREATE
+grants on databases other than the current one. At startup the API refuses a
+login role that holds CREATE or TEMPORARY on the database.
+
 ## Warning: edited migrations are not re-applied
 
 The migration runner records applied versions without a checksum. Editing a

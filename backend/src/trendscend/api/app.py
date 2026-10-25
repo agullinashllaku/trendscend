@@ -6,6 +6,10 @@ on a connection from it unless ``trust_injected_pool=True`` (test-only, for
 fakes). Without ``pool`` the lifespan creates the asyncpg pool, runs
 ``assert_safe_db_role`` and closes the pool on shutdown. In both cases the
 dev-only ``allow_unsafe_db_role`` flag is the only way to skip the check.
+
+Unparseable or unreachable ``DATABASE_URL``/``REDIS_URL`` raise a fixed
+RuntimeError with no chained exception: driver messages can contain a fragment
+of the password and uvicorn prints startup errors to stderr unfiltered.
 """
 
 from __future__ import annotations
@@ -47,11 +51,19 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         new_redis = None
         if redis is None:
-            new_redis = aioredis.from_url(
-                cfg.redis_url.get_secret_value(),
-                socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
-                socket_timeout=REDIS_SOCKET_TIMEOUT_S,
-            )
+            redis_failed = False
+            try:
+                new_redis = aioredis.from_url(
+                    cfg.redis_url.get_secret_value(),
+                    socket_connect_timeout=REDIS_SOCKET_TIMEOUT_S,
+                    socket_timeout=REDIS_SOCKET_TIMEOUT_S,
+                )
+            except Exception:
+                # The parser's message embeds a fragment of the URL (password).
+                redis_failed = True
+            # Raised outside the except block: no __context__/__cause__ retained.
+            if redis_failed:
+                raise RuntimeError("Invalid REDIS_URL (value not shown)") from None
             app.state.redis = new_redis
         try:
             if pool is not None:
@@ -74,7 +86,19 @@ def create_app(
 
     @asynccontextmanager
     async def _db_lifespan(app: FastAPI) -> AsyncIterator[None]:
-        new_pool = await create_pool(cfg.database_url.get_secret_value(), min_size=1, max_size=10)
+        new_pool = None
+        try:
+            new_pool = await create_pool(
+                cfg.database_url.get_secret_value(), min_size=1, max_size=10
+            )
+        except Exception:
+            # DSN parse/connect errors may embed URL fragments; never propagate them.
+            new_pool = None
+        # Raised outside the except block: no __context__/__cause__ retained.
+        if new_pool is None:
+            raise RuntimeError(
+                "Database connection failed; check DATABASE_URL (value not shown)"
+            ) from None
         try:
             await _check_role(new_pool)
             app.state.pool = new_pool

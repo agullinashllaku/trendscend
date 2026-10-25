@@ -22,6 +22,12 @@ import asyncpg
 # (TRUNCATE ignores RLS; column-level REFERENCES counts too, since FK checks
 # ignore RLS and give a cross-tenant existence oracle). A session_replication_role
 # other than 'origin' is rejected because triggers (append-only, RI) do not fire.
+# CREATE and TEMPORARY on the database are rejected too (CREATE lets a role add
+# schemas; TEMP lets it create temp tables/objects). has_database_privilege
+# already covers PUBLIC and inherited grants; it is evaluated for every role the
+# session role is a MEMBER of (r itself included), so a NOINHERIT member of a
+# CREATE holder, who can still SET ROLE to it, is caught as well. The
+# bootstrap revokes both and migration 003 removed TEMP from PUBLIC.
 # pg_read_all_data/pg_write_all_data/pg_monitor/pg_signal_backend
 # were verified on PG16 NOT to bypass FORCE RLS and are deliberately not listed.
 _ROLE_QUERY = """
@@ -88,7 +94,17 @@ SELECT r.rolsuper AS rolsuper,
                   OR has_any_column_privilege(r4.oid, c.oid, 'REFERENCES'))
        ) AS has_dangerous_table_privs,
        current_setting('session_replication_role') <> 'origin'
-           AS replication_role_not_origin
+           AS replication_role_not_origin,
+       EXISTS (
+           SELECT 1 FROM pg_roles r5
+           WHERE pg_has_role(r.oid, r5.oid, 'MEMBER')
+             AND has_database_privilege(r5.oid, current_database(), 'CREATE')
+       ) AS holds_db_create,
+       EXISTS (
+           SELECT 1 FROM pg_roles r6
+           WHERE pg_has_role(r.oid, r6.oid, 'MEMBER')
+             AND has_database_privilege(r6.oid, current_database(), 'TEMP')
+       ) AS holds_db_temp
 FROM pg_roles r
 WHERE r.rolname IN (session_user, current_user)
 """
@@ -105,8 +121,8 @@ async def assert_safe_db_role(conn: asyncpg.Connection) -> None:
     which can disable RLS, drop policies or drop tables), or of a
     superuser/BYPASSRLS role; or has REPLICATION, CREATEROLE, membership of a
     server-file/program built-in role, control of a trigger function on an RLS
-    table, or TRUNCATE/TRIGGER/REFERENCES on an RLS table (directly or via any
-    role it can assume).
+    table, TRUNCATE/TRIGGER/REFERENCES on an RLS table, or CREATE/TEMPORARY on
+    the database (directly or via any role it can assume).
     """
     rows = await conn.fetch(_ROLE_QUERY)
     if not rows:
@@ -132,12 +148,15 @@ async def assert_safe_db_role(conn: asyncpg.Connection) -> None:
     )
     flag("has_dangerous_table_privs", "holds TRUNCATE/TRIGGER/REFERENCES on RLS tables")
     flag("replication_role_not_origin", "session_replication_role is not 'origin'")
+    flag("holds_db_create", "holds CREATE on the database")
+    flag("holds_db_temp", "holds TEMPORARY on the database")
     if problems:
         raise RuntimeError(
             "Unsafe database role for the API (" + ", ".join(problems) + "); "
             "connect as a non-superuser, non-BYPASSRLS role that is a member of "
             "trendscend_app, has no CREATEROLE/REPLICATION or server-file/program "
             "roles, owns no RLS tables, schema, database or trigger function on RLS "
-            "tables, holds no TRUNCATE/TRIGGER/REFERENCES on RLS tables, and runs "
+            "tables, holds no TRUNCATE/TRIGGER/REFERENCES on RLS tables and no "
+            "CREATE/TEMPORARY on the database, and runs "
             "with session_replication_role 'origin'"
         )

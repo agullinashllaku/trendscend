@@ -55,14 +55,26 @@ _MAX_ITERS = 1_000_000
 _INLINE_MAX_ITERS = 100_000
 _ADOPT_MSG = "refusing to adopt existing role"
 _OWN_ROLE_MSG = "login_role must not be the owner's own role"
+_NAME_MSG = "login_role must match ^[a-z_][a-z0-9_]{0,62}$"
+_RESERVED_MSG = "login_role is reserved"
+_PW_EMPTY_MSG = "password must not be empty"
+_PW_ASCII_MSG = "password must be ASCII without NUL"
+_HINTS = {
+    _ADOPT_MSG: "API_DB_ROLE names an existing role that cannot be adopted",
+    _OWN_ROLE_MSG: "API_DB_ROLE must not be the owner's own role",
+    _NAME_MSG: "Invalid API_DB_ROLE or API_DB_PASSWORD",
+    _RESERVED_MSG: "Invalid API_DB_ROLE or API_DB_PASSWORD",
+    _PW_EMPTY_MSG: "Invalid API_DB_ROLE or API_DB_PASSWORD",
+    _PW_ASCII_MSG: "Invalid API_DB_ROLE or API_DB_PASSWORD",
+}
 _ENV_VARS = ("OWNER_DATABASE_URL", "API_DB_ROLE", "API_DB_PASSWORD")
 
 
 def _validate_name(login_role: str) -> None:
     if _ROLE_RE.fullmatch(login_role) is None:
-        raise ValueError("login_role must match ^[a-z_][a-z0-9_]{0,62}$")
+        raise ValueError(_NAME_MSG)
     if login_role.startswith("pg_") or login_role in _RESERVED:
-        raise ValueError("login_role is reserved")
+        raise ValueError(_RESERVED_MSG)
 
 
 class _RefusedError(Exception):
@@ -197,11 +209,11 @@ async def bootstrap_api_role(
     _validate_name(login_role)
     secret = password.get_secret_value()
     if not secret:
-        raise ValueError("password must not be empty")
+        raise ValueError(_PW_EMPTY_MSG)
     if not secret.isascii() or "\x00" in secret:
         # asyncpg SASLprep-normalises at login, which would not match a verifier
         # computed on raw non-ASCII bytes. Never echo the password.
-        raise ValueError("password must be ASCII without NUL")
+        raise ValueError(_PW_ASCII_MSG)
     refused: str | None = None
     failed = False
     try:
@@ -251,11 +263,13 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     except ValueError as exc:
-        # Fixed hints only; never print an arbitrary exception message.
-        hint = {
-            _ADOPT_MSG: "API_DB_ROLE names an existing role that cannot be adopted",
-            _OWN_ROLE_MSG: "API_DB_ROLE must not be the owner's own role",
-        }.get(str(exc), "Invalid API_DB_ROLE or API_DB_PASSWORD")
+        # Fixed hints only; never print an arbitrary exception message. Only the
+        # known role/password validation and refusal messages earn a hint; any
+        # other ValueError (malformed owner URL, duplicate migration) is generic.
+        hint = _HINTS.get(str(exc))
+        if hint is None:
+            print("bootstrap failed", file=sys.stderr)
+            return 1
         print(hint, file=sys.stderr)
         return 2
     except Exception:
