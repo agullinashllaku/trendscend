@@ -12,7 +12,7 @@ from httpx import ASGITransport
 from tests.api.fakes import Clock, FakeRedis
 from tests.api.test_app import EXPECTED_HEADERS, FakePool, make_settings
 from trendscend.api.app import create_app
-from trendscend.api.ratelimit import RateLimiter, client_ip
+from trendscend.api.ratelimit import RateLimiter, client_ip, rate_limit_key
 from trendscend.api.settings import Settings, load_settings
 
 
@@ -335,3 +335,64 @@ async def test_ipv4_mapped_and_plain_share_key() -> None:
 def test_zone_id_in_xff_is_malformed() -> None:
     assert client_ip(scope("10.1.2.3", ["fe80::1%eth0"]), TRUSTED) == "10.1.2.3"
     assert client_ip(scope("10.1.2.3", ["6.6.6.6, fe80::1%eth0"]), TRUSTED) == "10.1.2.3"
+
+
+# ---- IPv6 /64 bucketing ----
+async def test_ipv6_same_64_shares_bucket_and_limit() -> None:
+    app, r = build(limit=2)
+    codes = []
+    for peer in ("2001:db8:1:2::1", "2001:db8:1:2:ffff::9", "2001:db8:1:2::1"):
+        async with client(app, peer) as c:
+            codes.append((await c.get("/readyz")).status_code)
+    assert codes == [200, 200, 429]
+    assert len(r.counts) == 1
+
+
+async def test_ipv6_different_64_is_different_bucket() -> None:
+    app, r = build(limit=1)
+    for peer in ("2001:db8:1:2::1", "2001:db8:1:3::1"):
+        async with client(app, peer) as c:
+            assert (await c.get("/readyz")).status_code == 200
+    assert len(r.counts) == 2
+
+
+async def test_ipv4_and_mapped_ipv6_share_bucket() -> None:
+    app, r = build(limit=1)
+    async with client(app, "1.2.3.4") as c:
+        assert (await c.get("/readyz")).status_code == 200
+    async with client(app, "::ffff:1.2.3.4") as c:
+        assert (await c.get("/readyz")).status_code == 429
+    assert len(r.counts) == 1
+
+
+async def test_keyspace_one_key_for_1000_addresses_in_a_64() -> None:
+    import random
+
+    rng = random.Random(7)  # noqa: S311 - deterministic test data
+    r = FakeRedis()
+    lim = RateLimiter(r, limit=10**9)
+    for _ in range(1000):
+        iid = rng.getrandbits(64)
+        groups = ":".join(f"{(iid >> sh) & 0xFFFF:x}" for sh in (48, 32, 16, 0))
+        ip = f"2001:db8:aa:bb:{groups}"
+        await lim.hit(rate_limit_key(ip))
+    assert len(r.counts) == 1
+
+
+def test_rate_limit_key_values() -> None:
+    assert rate_limit_key("1.2.3.4") == "1.2.3.4"
+    assert rate_limit_key("2001:db8:1:2:ffff::9") == "2001:db8:1:2::/64"
+    assert rate_limit_key("unknown") == "unknown"
+
+
+def test_rate_limit_key_sanitises_garbage() -> None:
+    k = rate_limit_key("fe80::1%eth0 \n\x00\t" + "x" * 200)
+    assert len(k) <= 64
+    assert re.fullmatch(r"[0-9A-Za-z.:_/-]*", k)
+    assert "%" not in k
+    assert rate_limit_key("a b%c\r\n") == "a_b_c__"
+
+
+def test_xff_ipv6_client_bucketed_by_client_not_proxy() -> None:
+    sc = scope("10.1.2.3", ["2001:db8:1:2::77"])
+    assert rate_limit_key(client_ip(sc, TRUSTED)) == "2001:db8:1:2::/64"
