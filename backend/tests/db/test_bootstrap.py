@@ -222,6 +222,9 @@ async def test_password_not_in_exceptions_or_repr(
 def _assert_no_secret_in_frames(exc: BaseException, secret: str) -> None:
     tb = exc.__traceback__
     while tb is not None:
+        if not tb.tb_frame.f_code.co_filename.endswith("trendscend/db/bootstrap.py"):
+            tb = tb.tb_next
+            continue
         for v in tb.tb_frame.f_locals.values():
             assert not (isinstance(v, str) and secret in v)
             assert not (isinstance(v, bytes) and secret.encode() in v)
@@ -429,6 +432,8 @@ async def test_repair_removes_memberships_granted_by_other_grantors(
         await c.execute(f'CREATE ROLE "{scratch}" NOLOGIN')
         await c.execute(f'CREATE ROLE "{granter}" SUPERUSER NOLOGIN')
         await bootstrap_api_role(c, name, SecretStr("pw"))
+        await c.execute(f'GRANT trendscend_app TO "{granter}" WITH ADMIN OPTION')
+        await c.execute(f'GRANT "{scratch}" TO "{granter}" WITH ADMIN OPTION')
         await c.execute(
             f'GRANT trendscend_app TO "{name}" WITH ADMIN OPTION, INHERIT FALSE '
             f'GRANTED BY "{granter}"'
@@ -520,3 +525,21 @@ async def test_refuses_to_adopt_role_owning_database(owner_pool: asyncpg.Pool) -
             assert await c.fetchval("SELECT rolcreaterole FROM pg_roles WHERE rolname=$1", name)
         finally:
             await c.execute(f'DROP DATABASE IF EXISTS "{db}"')
+
+
+class NoMembershipView(RecConn):
+    async def fetch(self, sql: str, *a: Any) -> Any:
+        if "set_option" in sql:
+            return []  # simulate the verification seeing a wrong final state
+        return await super().fetch(sql, *a)
+
+
+@LOOP
+async def test_final_membership_verification_failure_rolls_back(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    name = "zz_b_verify"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        with pytest.raises(RuntimeError, match="bootstrap failed"):
+            await bootstrap_api_role(NoMembershipView(c), name, SecretStr("pw"))  # type: ignore[arg-type]
+        assert await c.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", name) is None

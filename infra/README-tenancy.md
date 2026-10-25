@@ -31,10 +31,14 @@ The command applies pending migrations as the owner, then creates or repairs the
 login role: `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB
 NOREPLICATION INHERIT`, password reset, role-level settings cleared, member of
 `trendscend_app` only (all other memberships revoked). It is idempotent, so
-re-running it also repairs drift. It prints only `ok`; failures print a generic
-message and never the password. Keep server `log_statement` off for `ddl`/`all`
-during the run (the statement text contains the password), and check that
-`password_encryption` is `scram-sha-256` so the password is stored hashed.
+re-running it also repairs drift (including memberships granted by other
+roles). It prints only `ok`; failures print a generic message. It refuses to
+adopt an existing role that is a superuser or owns objects or a database.
+
+Only a client-computed SCRAM-SHA-256 verifier is sent: the plaintext password
+never reaches the server or its logs. The verifier can still appear in server
+logs on errors (offline brute-force only), so use a long random password. The
+password must be ASCII (no NUL).
 
 Who runs what: the **owner role** runs migrations and the bootstrap; the
 **login role** (`API_DB_ROLE`, via the API's `DATABASE_URL`) serves requests.
