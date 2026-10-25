@@ -177,9 +177,75 @@ def test_open_risks_record_hardening_review_findings() -> None:
 
 def test_top_threat_4_states_what_exists_precisely() -> None:
     row = next(c for c in _table_rows() if c[0] == "4")
-    assert "SBOM" in row[2] and "Trivy" in row[2]
-    assert "Dependabot" in row[2] and "5a-hardening" in row[3]
-    assert "hash-enforced" not in row[2].split("Not yet in place")[-1] or "uv.lock" in row[2]
+    existing, _, missing = row[2].partition("Not yet in place")
+    for present in ["--locked", "SHA", "permissions", "digest", "Dependabot"]:
+        assert present.lower() in existing.lower(), f"top-threat 4 'Existing' lacks {present}"
+    for open_item in ["SBOM", "Trivy container-image scan", "gitleaks"]:
+        assert open_item in missing, f"top-threat 4 'Not yet in place' lacks {open_item}"
+    assert "docker-compose.yml only" in existing  # Dependabot scope caveat
+    assert "5a-hardening" in row[3]
+
+
+def test_per_route_isolation_tests_are_not_owned_by_5a_alone() -> None:
+    checked = 0
+    for cells in _table_rows():
+        if len(cells) < 3:
+            continue
+        if re.search(r"per[ -]route", " ".join(cells[:-1]), re.IGNORECASE):
+            checked += 1
+            if _BARE_5A.search(cells[-1]):
+                assert "5b" in cells[-1], f"per-route claim owned by 5a alone: {cells}"
+    assert checked >= 2
+
+
+def test_each_overclaim_row_owner_has_no_bare_5a() -> None:
+    markers = [
+        "Pydantic strict",
+        "Session auth on every route",
+        "Request/audit logging",
+        "Role checks, step-up",
+        "CSRF tokens",
+        "RLS on key table",
+        "Workers have read-only",
+        "Worker identity",
+    ]
+    rows = _table_rows()
+    for marker in markers:
+        hits = [c for c in rows if len(c) >= 3 and marker in " ".join(c[:-1])]
+        assert hits, f"no row for {marker!r}"
+        for cells in hits:
+            assert not _BARE_5A.search(cells[-1]), f"{marker!r} owned by 5a: {cells[-1]}"
+
+
+def test_bootstrap_row_states_scram_verifier_log_residual() -> None:
+    row = next(c for c in _table_rows() if "db.bootstrap" in " ".join(c))
+    text = " ".join(row).lower()
+    assert "verifier" in text and "server logs" in text and "offline" in text
+    assert "long, random, ascii" in text
+    risks = " ".join(_open_risk_lines())
+    assert "verifier" in risks and "offline" in risks
+
+
+def test_hardening_rows_state_their_limits() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    assert "allow_unsafe_db_role" in text and 'environment == "dev"' in text
+    assert "test-only by convention" in text
+    assert "NEW sessions only" in text
+    assert "pg_shdepend" in text and "repaired, not refused" in text
+    assert "to be written" in text and "environment variables" in text
+    assert "not enforced" not in text
+
+
+def test_open_risks_have_owners() -> None:
+    risks = " ".join(_open_risk_lines())
+    for needle in [
+        "owner 5d: `pg_stat_activity`",
+        "owner 5b/5d: role-assertion drift",
+        "owner 5b: explicit GRANT EXECUTE",
+        "Deploy/infra (planned, not yet owned): the gitleaks-action",
+        "Trivy and its vulnerability database",
+    ]:
+        assert needle in risks, f"open risks missing {needle!r}"
 
 
 def test_audit_trigger_comment_does_not_claim_owner_immutability() -> None:
