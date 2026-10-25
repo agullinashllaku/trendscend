@@ -22,7 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 def real_app() -> FastAPI:
-    return create_app(make_settings(), pool=FakePool(), redis=FakeRedis())
+    return create_app(make_settings(), pool=FakePool(), redis=FakeRedis(), trust_injected_pool=True)
 
 
 def test_no_undeclared_routes_in_real_app() -> None:

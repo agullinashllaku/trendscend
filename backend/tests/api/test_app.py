@@ -60,7 +60,9 @@ class FakePool:
 
 
 def build(env: str = "dev", pool: Any = None) -> Any:
-    app = create_app(make_settings(env), pool=pool or FakePool(), redis=FakeRedis())
+    app = create_app(
+        make_settings(env), pool=pool or FakePool(), redis=FakeRedis(), trust_injected_pool=True
+    )
 
     @app.get("/boom")
     async def boom() -> None:

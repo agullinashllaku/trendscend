@@ -92,6 +92,9 @@ async def test_real_uvicorn_ignores_xff_and_logs_no_query(
     opts.update(port=0, factory=False)
     server = uvicorn.Server(uvicorn.Config(app, **opts))  # type: ignore[arg-type]
     caplog.set_level(logging.DEBUG)
+    # The test's own HTTP client logs the URL it requests; only server-side output matters.
+    caplog.set_level(logging.WARNING, logger="httpx")
+    caplog.set_level(logging.WARNING, logger="httpcore")
     task = asyncio.create_task(server.serve())
     try:
         for _ in range(100):
@@ -102,13 +105,14 @@ async def test_real_uvicorn_ignores_xff_and_logs_no_query(
             pytest.skip("cannot bind a local socket in this sandbox")
         port = server.servers[0].sockets[0].getsockname()[1]
         async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as c:
-            r = await c.get("/healthz?token=SECRETQ", headers={"X-Forwarded-For": "203.0.113.9"})
+            r = await c.get("/readyz?token=SECRETQ", headers={"X-Forwarded-For": "203.0.113.9"})
             assert r.status_code == 200
             assert "server" not in r.headers
     finally:
         server.should_exit = True
         await asyncio.wait_for(task, timeout=5)
     keys = " ".join(redis.counts)
+    assert "127.0.0.1" in keys  # limiter keyed on the TCP peer (/readyz is rate-limited)
     assert "203.0.113.9" not in keys
     out = capfd.readouterr()
     assert "SECRETQ" not in out.out + out.err + caplog.text

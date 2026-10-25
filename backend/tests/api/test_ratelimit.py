@@ -30,7 +30,12 @@ TRUSTED = frozenset({"10.0.0.0/8", "192.168.1.1"})
 
 def build(limit: int = 3, redis: FakeRedis | None = None, **kw: Any) -> tuple[Any, FakeRedis]:
     r = redis or FakeRedis()
-    app = create_app(make_settings(rate_limit_per_minute=limit, **kw), pool=FakePool(), redis=r)
+    app = create_app(
+        make_settings(rate_limit_per_minute=limit, **kw),
+        pool=FakePool(),
+        redis=r,
+        trust_injected_pool=True,
+    )
     return app, r
 
 
@@ -164,7 +169,7 @@ async def test_redis_failure_returns_503_except_healthz() -> None:
 
 
 async def test_503_when_no_redis_client_configured() -> None:
-    app = create_app(make_settings(), pool=FakePool())
+    app = create_app(make_settings(), pool=FakePool(), trust_injected_pool=True)
     async with client(app) as c:
         assert (await c.get("/readyz")).status_code == 503
         assert (await c.get("/healthz")).status_code == 200
@@ -200,7 +205,7 @@ async def test_lifespan_creates_and_closes_redis(monkeypatch: pytest.MonkeyPatch
         return created[0]
 
     monkeypatch.setattr(appmod.aioredis, "from_url", fake_from_url)
-    app = create_app(make_settings(), pool=FakePool())
+    app = create_app(make_settings(), pool=FakePool(), trust_injected_pool=True)
     async with app.router.lifespan_context(app):
         assert app.state.redis is created[0]
     assert seen_urls == ["redis://:TOPSECRETRD@h"] and created[0].closed
@@ -307,7 +312,7 @@ async def test_lifespan_passes_socket_timeouts(monkeypatch: pytest.MonkeyPatch) 
         return FakeRedis()
 
     monkeypatch.setattr(appmod.aioredis, "from_url", fake_from_url)
-    app = create_app(make_settings(), pool=FakePool())
+    app = create_app(make_settings(), pool=FakePool(), trust_injected_pool=True)
     async with app.router.lifespan_context(app):
         pass
     assert captured == {
