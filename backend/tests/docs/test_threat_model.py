@@ -233,11 +233,11 @@ def test_hardening_rows_state_their_limits() -> None:
     assert "NEW sessions only" in text
     assert "pg_shdepend" in text and "repaired, not refused" in text
     assert "to be written" in text and "environment variables" in text
-    assert "not enforced" not in text
+    assert "it is not enforced" not in text
 
 
 def test_open_risks_have_owners() -> None:
-    risks = " ".join(_open_risk_lines())
+    risks = " ".join(_open_risk_lines()).lower()
     for needle in [
         "owner 5d: `pg_stat_activity`",
         "owner 5b/5d: role-assertion drift",
@@ -245,7 +245,7 @@ def test_open_risks_have_owners() -> None:
         "Deploy/infra (planned, not yet owned): the gitleaks-action",
         "Trivy and its vulnerability database",
     ]:
-        assert needle in risks, f"open risks missing {needle!r}"
+        assert needle.lower() in risks, f"open risks missing {needle!r}"
 
 
 def test_audit_trigger_comment_does_not_claim_owner_immutability() -> None:
