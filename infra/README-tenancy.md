@@ -33,7 +33,9 @@ NOREPLICATION INHERIT`, password reset, role-level settings cleared, member of
 `trendscend_app` only (all other memberships revoked). It is idempotent, so
 re-running it also repairs drift (including memberships granted by other
 roles). It prints only `ok`; failures print a generic message. It refuses to
-adopt an existing role that is a superuser or owns objects or a database.
+adopt an existing role that is a superuser, owns objects or a database, holds
+direct grants, or has members of its own (e.g. a shared group role); such a
+role is left unaltered.
 
 Only a client-computed SCRAM-SHA-256 verifier is sent: the plaintext password
 never reaches the server or its logs. The verifier can still appear in server

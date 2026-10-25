@@ -5,6 +5,12 @@ makes the login role named by ``API_DB_ROLE`` exactly: LOGIN, no privileged
 attributes, no role-level GUC defaults, member of ``trendscend_app`` only. It
 is idempotent and repairs drift on every run.
 
+Adoption rules: an existing role is altered only if it is not a superuser, has
+no pg_shdepend rows (owns nothing and holds no direct ACL grants, cluster-wide),
+owns no database, and has no members of its own. Otherwise ValueError("refusing
+to adopt existing role") is raised and the role is left unaltered. A freshly
+bootstrapped role satisfies all of these, so re-running always works.
+
 Security properties:
 - Every identifier/literal is rendered server-side with ``format('%I'/'%L')``;
   no value is ever interpolated into SQL by Python.
@@ -42,6 +48,11 @@ _ATTRS = (
 )
 # Distinct from the migration lock (0x7472_656E_6473_0001): serialises bootstraps.
 _LOCK_KEY = 0x7472_656E_6473_0002
+_MIN_ITERS = 4096
+_MAX_ITERS = 1_000_000
+_INLINE_MAX_ITERS = 100_000
+_ADOPT_MSG = "refusing to adopt existing role"
+_OWN_ROLE_MSG = "login_role must not be the owner's own role"
 _ENV_VARS = ("OWNER_DATABASE_URL", "API_DB_ROLE", "API_DB_PASSWORD")
 
 
@@ -70,26 +81,42 @@ def _scram_verifier(password: str, *, salt: bytes | None = None, iterations: int
     return f"SCRAM-SHA-256${iterations}:{b64(salt)}${b64(stored_key)}:{b64(server_key)}"
 
 
+async def _verifier_for(conn: asyncpg.Connection, password: str) -> str:
+    raw_iters = await conn.fetchval("SELECT current_setting('scram_iterations', true)")
+    # Clamp the server-reported cost: never weaker than the PostgreSQL default,
+    # never so large that hashing stalls the bootstrap.
+    iterations = min(max(int(raw_iters), _MIN_ITERS), _MAX_ITERS) if raw_iters else _MIN_ITERS
+    if iterations > _INLINE_MAX_ITERS:
+        return await asyncio.to_thread(_scram_verifier, password, iterations=iterations)
+    return _scram_verifier(password, iterations=iterations)
+
+
 async def _run(conn: asyncpg.Connection, login_role: str, password: str) -> None:
+    # Hash before opening the transaction / taking the lock so a slow PBKDF2
+    # never holds either.
+    verifier = await _verifier_for(conn, password)
     async with conn.transaction():
         await conn.execute("SELECT pg_advisory_xact_lock($1)", _LOCK_KEY)
         me = await conn.fetchrow("SELECT current_user AS cu, session_user AS su")
         if me is not None and login_role in (me["cu"], me["su"]):
-            raise _RefusedError("login_role must not be the owner's own role")
-        raw_iters = await conn.fetchval("SELECT current_setting('scram_iterations', true)")
-        verifier = _scram_verifier(password, iterations=int(raw_iters) if raw_iters else 4096)
+            raise _RefusedError(_OWN_ROLE_MSG)
         existing = await conn.fetchrow(
             "SELECT oid, rolsuper FROM pg_roles WHERE rolname = $1", login_role
         )
         if existing is not None:
-            owns = await conn.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM pg_shdepend WHERE deptype = 'o' "
-                "AND refclassid = 'pg_authid'::regclass AND refobjid = $1) "
-                "OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = $1)",
+            # Adopt only a role that is a plain login role: not a superuser, owns
+            # nothing and holds no direct grants (pg_shdepend is a shared catalog:
+            # deptype 'o' owner, 'a' ACL entry), owns no database, and has no
+            # members of its own (it is not a shared group role).
+            unsafe = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_shdepend WHERE "
+                "refclassid = 'pg_authid'::regclass AND refobjid = $1) "
+                "OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = $1) "
+                "OR EXISTS (SELECT 1 FROM pg_auth_members WHERE roleid = $1)",
                 existing["oid"],
             )
-            if existing["rolsuper"] or owns:
-                raise _RefusedError("refusing to adopt existing role")
+            if existing["rolsuper"] or unsafe:
+                raise _RefusedError(_ADOPT_MSG)
         verb = "ALTER" if existing is not None else "CREATE"
         stmt = await conn.fetchval(
             f"SELECT format('{verb} ROLE %I {_ATTRS} VALID UNTIL ''infinity'' PASSWORD %L', "
@@ -172,7 +199,9 @@ async def bootstrap_api_role(
     except Exception:
         failed = True
     finally:
-        secret = ""  # nosec B105 - wiping the local, not a hardcoded password
+        # Python strings are immutable and the caller's SecretStr still holds the
+        # value; dropping this local only shortens the lifetime of one reference.
+        secret = ""  # nosec B105 - not a hardcoded password
     # Raised outside the except block so no __context__/__cause__ is attached.
     if refused is not None:
         raise ValueError(refused)
@@ -209,8 +238,13 @@ def main(argv: list[str] | None = None) -> int:
                 SecretStr(os.environ["API_DB_PASSWORD"]),
             )
         )
-    except ValueError:
-        print("Invalid API_DB_ROLE or API_DB_PASSWORD", file=sys.stderr)
+    except ValueError as exc:
+        # Fixed hints only; never print an arbitrary exception message.
+        hint = {
+            _ADOPT_MSG: "API_DB_ROLE names an existing role that cannot be adopted",
+            _OWN_ROLE_MSG: "API_DB_ROLE must not be the owner's own role",
+        }.get(str(exc), "Invalid API_DB_ROLE or API_DB_PASSWORD")
+        print(hint, file=sys.stderr)
         return 2
     except Exception:
         print("bootstrap failed", file=sys.stderr)
