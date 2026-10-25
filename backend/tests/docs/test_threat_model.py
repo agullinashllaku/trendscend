@@ -1,5 +1,6 @@
 """Guards the Phase 5 STRIDE threat model against silent gaps."""
 
+import re
 from pathlib import Path
 
 DOC = Path(__file__).parents[3] / "docs" / "threat-model.md"
@@ -69,3 +70,133 @@ def test_top_threats_table_maps_each_threat_to_mitigation_and_owner() -> None:
         cells = [c.strip() for c in row.strip("|").split("|")]
         assert threat.lower() in cells[1].lower()
         assert cells[2] and cells[3], f"{threat}: missing mitigation or owner"
+
+
+# --- Phase 5a hardening (Task 8): ownership honesty ---------------------------
+
+ROOT = Path(__file__).parents[3]
+REVIEW = ROOT / "docs" / "reviews" / "phase5a-post-merge-review.md"
+PROGRESS = ROOT / "docs" / "progress.md"
+MIGRATION_002 = ROOT / "backend" / "src" / "trendscend" / "db" / "migrations" / "002_tenancy.sql"
+HARDENING_PLAN = "docs/superpowers/plans/2026-10-24-phase5a-hardening.md"
+
+# "5a" on its own: not part of "5a-hardening" and not inside another token.
+_BARE_5A = re.compile(r"(?<![\w-])5a(?![\w-])")
+
+
+def _table_rows() -> list[list[str]]:
+    """Every markdown table row in the doc as stripped cells (separators dropped)."""
+    rows = []
+    for line in DOC.read_text(encoding="utf-8").splitlines():
+        if line.startswith("|") and not set(line) <= set("|- "):
+            rows.append([c.strip() for c in line.strip().strip("|").split("|")])
+    return rows
+
+
+def _open_risk_lines() -> list[str]:
+    return [
+        ln
+        for ln in DOC.read_text(encoding="utf-8").splitlines()
+        if ln.startswith("**Open risks:**")
+    ]
+
+
+def test_forgeable_tenant_guc_is_listed_as_open_risk_owned_by_5b() -> None:
+    hits = [ln for ln in _open_risk_lines() if "forgeable tenant" in ln.lower()]
+    assert hits, "forgeable tenant GUC (M4) missing from Open risks"
+    line = hits[0]
+    assert "5b" in line
+    assert "2026-10-24" in line
+    assert "SECURITY DEFINER" in line and "session token" in line
+
+
+def test_no_5a_claim_for_session_auth_csrf_audit_writes_workers_or_key_rls() -> None:
+    keywords = re.compile(
+        r"session auth|csrf|samesite|request/audit logging|rls on key table|"
+        r"workers have read-only|worker/ingest|owner role sees|role checks",
+        re.IGNORECASE,
+    )
+    checked = 0
+    for cells in _table_rows():
+        if len(cells) < 3:
+            continue
+        text = " ".join(cells[:-1])
+        if keywords.search(text):
+            checked += 1
+            assert not _BARE_5A.search(cells[-1]), f"5a owns an overclaim: {cells}"
+    assert checked >= 6
+
+
+def test_overclaims_are_reworded() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    assert "auto-generated" not in text
+    assert "Pydantic strict validation (5a)" not in text
+    assert "declaration harness" in text
+    # Insider/owner row states the truth about the DB owner role.
+    row = next(c for c in _table_rows() if c[0] == "6")
+    assert "superuser" in row[2].lower()
+    assert "not mitigated" in row[2].lower()
+    assert "5d" in row[3] and not _BARE_5A.search(row[3])
+
+
+def test_hardening_claim_rows_name_5a_hardening() -> None:
+    phrases = [
+        "DISCARD ALL",
+        "REVOKE TEMPORARY",
+        "trust_injected_pool",
+        "SCRAM verifier",
+        "proxy_headers=False",
+        "/64",
+        "uv sync --locked",
+        "server-file",
+    ]
+    rows = _table_rows()
+    for phrase in phrases:
+        matching = [c for c in rows if len(c) >= 3 and phrase in " ".join(c[:-1])]
+        assert matching, f"no table row mentions {phrase!r}"
+        for cells in matching:
+            assert "5a-hardening" in cells[-1], f"{phrase!r} row lacks 5a-hardening owner"
+
+
+def test_open_risks_record_hardening_review_findings() -> None:
+    risks = " ".join(_open_risk_lines())
+    for needle in [
+        "audit_append",
+        "audit_log_id_seq",
+        "security_invoker",
+        "pg_read_file",
+        "boot only",
+        "reltuples",
+        "gitleaks-action",
+        "pg_stat_activity",
+        "NOTIFY",
+        "TimescaleDB internals",
+    ]:
+        assert needle in risks, f"open risks missing {needle!r}"
+
+
+def test_top_threat_4_states_what_exists_precisely() -> None:
+    row = next(c for c in _table_rows() if c[0] == "4")
+    assert "SBOM" in row[2] and "Trivy" in row[2]
+    assert "Dependabot" in row[2] and "5a-hardening" in row[3]
+    assert "hash-enforced" not in row[2].split("Not yet in place")[-1] or "uv.lock" in row[2]
+
+
+def test_audit_trigger_comment_does_not_claim_owner_immutability() -> None:
+    sql = MIGRATION_002.read_text(encoding="utf-8")
+    assert "including the owner" not in sql
+    assert "session_replication_role" in sql
+
+
+def test_review_file_has_no_stale_5b_task_0_hardening_claim() -> None:
+    review = REVIEW.read_text(encoding="utf-8")
+    assert "5b Task 0" not in review
+    assert HARDENING_PLAN in review
+    assert "## Hardening status" in review
+
+
+def test_progress_has_phase_5a_hardening_section() -> None:
+    progress = PROGRESS.read_text(encoding="utf-8")
+    assert "## Phase 5a hardening" in progress
+    assert progress.index("## Phase 5a hardening") > progress.index("## Phase 5a:")
+    assert "session-token tenant binding (M4)" in progress
