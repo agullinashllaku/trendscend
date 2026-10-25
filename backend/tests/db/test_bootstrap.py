@@ -677,3 +677,84 @@ def test_main_distinct_hints_for_refusals(
         assert "existing role that cannot be adopted" in err and "APIPW" not in err
     finally:
         asyncio.run(rm())
+
+
+# ---- fix round 3 -----------------------------------------------------------
+
+
+async def _db_priv(c: asyncpg.Connection, role: str, priv: str) -> bool:
+    return bool(
+        await c.fetchval("SELECT has_database_privilege($1, current_database(), $2)", role, priv)
+    )
+
+
+@LOOP
+async def test_database_connect_grant_is_allowed_and_preserved(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    name = "zz_b_dbacl"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        db = await c.fetchval("SELECT current_database()")
+        try:
+            await bootstrap_api_role(c, name, SecretStr("pw"))
+            await c.execute(f'GRANT CONNECT ON DATABASE "{db}" TO "{name}"')
+            await bootstrap_api_role(c, name, SecretStr("pw"))  # not refused
+            assert await _db_priv(c, name, "CONNECT")
+            await c.execute(f'GRANT CREATE, TEMPORARY ON DATABASE "{db}" TO "{name}"')
+            await bootstrap_api_role(c, name, SecretStr("pw"))
+            assert await _db_priv(c, name, "CONNECT")
+            assert not await _db_priv(c, name, "CREATE")
+            assert not await _db_priv(c, name, "TEMPORARY")
+        finally:
+            await c.execute(f'REVOKE ALL ON DATABASE "{db}" FROM "{name}"')
+
+
+@LOOP
+async def test_plain_login_role_with_only_connect_is_adoptable(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    name = "zz_b_conly"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        db = await c.fetchval("SELECT current_database()")
+        await c.execute(f'CREATE ROLE "{name}" LOGIN CREATEROLE')
+        try:
+            await c.execute(f'GRANT CONNECT ON DATABASE "{db}" TO "{name}"')
+            await bootstrap_api_role(c, name, SecretStr("pw"))
+            assert not await c.fetchval("SELECT rolcreaterole FROM pg_roles WHERE rolname=$1", name)
+        finally:
+            await c.execute(f'REVOKE ALL ON DATABASE "{db}" FROM "{name}"')
+
+
+@LOOP
+async def test_table_acl_still_refused_alongside_database_acl(
+    owner_pool: asyncpg.Pool,
+) -> None:
+    name = "zz_b_mixed"
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        db = await c.fetchval("SELECT current_database()")
+        await c.execute(f'CREATE ROLE "{name}" LOGIN CREATEROLE')
+        try:
+            await c.execute(f'GRANT CONNECT ON DATABASE "{db}" TO "{name}"')
+            await c.execute(f'GRANT SELECT ON schema_migrations TO "{name}"')
+            await _unchanged_after_refusal(c, name)
+        finally:
+            await c.execute(f'REVOKE ALL ON schema_migrations FROM "{name}"')
+            await c.execute(f'REVOKE ALL ON DATABASE "{db}" FROM "{name}"')
+
+
+@LOOP
+async def test_hash_runs_outside_transaction(
+    owner_pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    name = "zz_b_order2"
+    seen: list[bool] = []
+    async with scratch_role(owner_pool, name), owner_pool.acquire() as c:
+        orig = bs._scram_verifier
+
+        def spy(*a: Any, **k: Any) -> str:
+            seen.append(c.is_in_transaction())
+            return orig(*a, **k)
+
+        monkeypatch.setattr(bs, "_scram_verifier", spy)
+        await bootstrap_api_role(c, name, SecretStr("pw"))
+    assert seen == [False]
