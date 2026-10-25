@@ -758,3 +758,45 @@ async def test_hash_runs_outside_transaction(
         monkeypatch.setattr(bs, "_scram_verifier", spy)
         await bootstrap_api_role(c, name, SecretStr("pw"))
     assert seen == [False]
+
+
+def test_main_malformed_owner_url_prints_no_misleading_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("OWNER_DATABASE_URL", "postgresql://o:OWNERSENT/pw#x@127.0.0.1:1/db")
+    monkeypatch.setenv("API_DB_ROLE", "zz_b_main2")
+    monkeypatch.setenv("API_DB_PASSWORD", "APIPW")
+    assert main([]) == 1
+    out = capsys.readouterr()
+    text = out.out + out.err
+    assert "OWNERSENT" not in text
+    assert "Invalid API_DB_ROLE" not in text
+    assert out.err.strip() == "bootstrap failed"
+
+
+def test_main_duplicate_migration_is_generic_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def boom(*_a: Any) -> None:
+        raise ValueError("duplicate migration number 002")
+
+    monkeypatch.setattr(bs, "_main", boom)
+    monkeypatch.setenv("OWNER_DATABASE_URL", "postgresql://o:p@127.0.0.1:1/db")
+    monkeypatch.setenv("API_DB_ROLE", "zz_b_main3")
+    monkeypatch.setenv("API_DB_PASSWORD", "APIPW")
+    assert main([]) == 1
+    assert capsys.readouterr().err.strip() == "bootstrap failed"
+
+
+def test_main_password_validation_still_exit_2(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def bad_pw(*_a: Any) -> None:
+        raise ValueError("password must be ASCII without NUL")
+
+    monkeypatch.setattr(bs, "_main", bad_pw)
+    monkeypatch.setenv("OWNER_DATABASE_URL", "postgresql://o:p@127.0.0.1:1/db")
+    monkeypatch.setenv("API_DB_ROLE", "zz_b_main4")
+    monkeypatch.setenv("API_DB_PASSWORD", "x")
+    assert main([]) == 2
+    assert "Invalid API_DB_ROLE or API_DB_PASSWORD" in capsys.readouterr().err

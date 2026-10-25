@@ -226,3 +226,11 @@ def test_uses_mutations_rejected() -> None:
     assert check_uses_pins(re.sub(r"(actions/checkout@\w{40}) # v\S+", r"\1", text, count=1)) != []
     assert check_uses_pins(text.replace(sha.group(1), "0" * 40, 1)) != []
     assert check_uses_pins(text.replace("trivy-action@", "trivy-action@master#", 1)) != []
+
+
+def test_compose_published_ports_bind_loopback_only() -> None:
+    compose = yaml.safe_load(COMPOSE.read_text())
+    published = [str(p) for svc in compose["services"].values() for p in svc.get("ports", [])]
+    assert published, "expected published ports"
+    for port in published:
+        assert port.startswith("127.0.0.1:"), f"{port} is not bound to loopback"

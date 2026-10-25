@@ -40,6 +40,8 @@ def row(
     fn: bool = False,
     tp: bool = False,
     ro: bool = False,
+    dc: bool = False,
+    dt: bool = False,
 ) -> dict[str, bool]:
     return {
         "rolsuper": s,
@@ -54,6 +56,8 @@ def row(
         "controls_rls_functions": fn,
         "has_dangerous_table_privs": tp,
         "replication_role_not_origin": ro,
+        "holds_db_create": dc,
+        "holds_db_temp": dt,
     }
 
 
@@ -92,6 +96,8 @@ async def test_problems_merge_across_session_and_current_role() -> None:
         (row(fn=True), "owns or can assume ownership of a trigger function on RLS tables"),
         (row(tp=True), "holds TRUNCATE/TRIGGER/REFERENCES on RLS tables"),
         (row(ro=True), "session_replication_role is not 'origin'"),
+        (row(dc=True), "holds CREATE on the database"),
+        (row(dt=True), "holds TEMPORARY on the database"),
         (None, "not found"),
     ],
 )
@@ -571,3 +577,61 @@ async def test_created_pool_still_role_checked_and_closed_on_failure(
         async with app.router.lifespan_context(app):
             pass
     assert pool.closed
+
+
+async def _grant_tx(conn: asyncpg.Connection, role_sql: str, grant: str | None) -> None:
+    await conn.execute(role_sql)
+    if grant:
+        dbname = await conn.fetchval("SELECT current_database()")
+        await conn.execute(f'GRANT {grant} ON DATABASE "{dbname}" TO zz_dbpriv')  # noqa: S608
+    await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_dbpriv")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    "grant,word",
+    [
+        ("CREATE", "holds CREATE on the database"),
+        ("TEMPORARY", "holds TEMPORARY on the database"),
+        (None, None),
+        ("CONNECT", None),
+    ],
+)
+async def test_live_database_create_temp_privileges(
+    owner_pool: asyncpg.Pool, grant: str | None, word: str | None
+) -> None:
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await _grant_tx(conn, "CREATE ROLE zz_dbpriv LOGIN IN ROLE trendscend_app", grant)
+            if word is None:
+                await assert_safe_db_role(conn)
+            else:
+                with pytest.raises(RuntimeError, match=word):
+                    await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio(loop_scope="session")
+async def test_live_noinherit_member_of_create_holder_rejected(owner_pool: asyncpg.Pool) -> None:
+    # has_database_privilege ignores a NOINHERIT member's SET ROLE reach; the
+    # query is membership-based so it is still refused.
+    async with owner_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            dbname = await conn.fetchval("SELECT current_database()")
+            await conn.execute("CREATE ROLE zz_holder NOLOGIN")
+            await conn.execute(f'GRANT CREATE ON DATABASE "{dbname}" TO zz_holder')  # noqa: S608
+            await conn.execute(
+                "CREATE ROLE zz_dbpriv LOGIN NOINHERIT IN ROLE trendscend_app, zz_holder"
+            )
+            await conn.execute("SET LOCAL SESSION AUTHORIZATION zz_dbpriv")
+            with pytest.raises(RuntimeError, match="holds CREATE on the database"):
+                await assert_safe_db_role(conn)
+        finally:
+            await tx.rollback()
