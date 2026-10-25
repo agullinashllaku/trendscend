@@ -35,7 +35,9 @@ re-running it also repairs drift (including memberships granted by other
 roles). It prints only `ok`; failures print a generic message. It refuses to
 adopt an existing role that is a superuser, owns objects or a database, holds
 direct grants, or has members of its own (e.g. a shared group role); such a
-role is left unaltered.
+role is left unaltered. An explicit `GRANT CONNECT ON DATABASE` to the login
+role is allowed and preserved; CREATE and TEMPORARY on the database are
+revoked by the bootstrap.
 
 Only a client-computed SCRAM-SHA-256 verifier is sent: the plaintext password
 never reaches the server or its logs. The verifier can still appear in server

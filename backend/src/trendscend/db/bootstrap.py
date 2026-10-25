@@ -7,7 +7,9 @@ is idempotent and repairs drift on every run.
 
 Adoption rules: an existing role is altered only if it is not a superuser, has
 no pg_shdepend rows (owns nothing and holds no direct ACL grants, cluster-wide),
-owns no database, and has no members of its own. Otherwise ValueError("refusing
+owns no database, and has no members of its own. Database-level ACL entries
+(e.g. an explicit GRANT CONNECT ON DATABASE) are allowed and preserved; CREATE
+and TEMPORARY on the database are revoked by every bootstrap run. Otherwise ValueError("refusing
 to adopt existing role") is raised and the role is left unaltered. A freshly
 bootstrapped role satisfies all of these, so re-running always works.
 
@@ -110,7 +112,8 @@ async def _run(conn: asyncpg.Connection, login_role: str, password: str) -> None
             # members of its own (it is not a shared group role).
             unsafe = await conn.fetchval(
                 "SELECT EXISTS (SELECT 1 FROM pg_shdepend WHERE "
-                "refclassid = 'pg_authid'::regclass AND refobjid = $1) "
+                "refclassid = 'pg_authid'::regclass AND refobjid = $1 "
+                "AND NOT (classid = 'pg_database'::regclass AND deptype = 'a')) "
                 "OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = $1) "
                 "OR EXISTS (SELECT 1 FROM pg_auth_members WHERE roleid = $1)",
                 existing["oid"],
@@ -166,6 +169,15 @@ async def _run(conn: asyncpg.Connection, login_role: str, password: str) -> None
         await conn.execute(
             await conn.fetchval(
                 "SELECT format('GRANT %I TO %I', $1::text, $2::text)", _APP_ROLE, login_role
+            )
+        )
+        # Database-level ACL: CONNECT is left as the operator set it; CREATE
+        # (schemas) and TEMPORARY are always revoked.
+        await conn.execute(
+            await conn.fetchval(
+                "SELECT format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM %I', "
+                "current_database(), $1::text)",
+                login_role,
             )
         )
         final = await conn.fetch(
