@@ -93,7 +93,7 @@ jobs:
           TEST_REDIS_URL: redis://localhost:6379/1
         run: uv run pytest --cov-fail-under=80
       - name: Upload coverage
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         if: always()
         with:
           files: backend/coverage.xml
