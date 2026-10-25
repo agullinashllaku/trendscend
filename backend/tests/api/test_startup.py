@@ -517,3 +517,57 @@ async def test_live_replica_session_replication_role_rejected(owner_pool: asyncp
                 await assert_safe_db_role(conn)
         finally:
             await tx.rollback()
+
+
+# --- injected pools are role-checked by default (L6) -------------------------
+
+
+async def test_injected_pool_is_role_checked_by_default() -> None:
+    pool = FakePool(FakeConn(row(s=True)))
+    app = create_app(make_settings("prod"), pool=pool, redis=FakeRedis())
+    with pytest.raises(RuntimeError, match="Unsafe database role"):
+        async with app.router.lifespan_context(app):
+            pytest.fail("startup must not succeed")
+    assert not pool.closed  # the caller owns an injected pool
+
+
+async def test_injected_safe_pool_passes_check() -> None:
+    pool = FakePool(FakeConn(row()))
+    app = create_app(make_settings("prod"), pool=pool, redis=FakeRedis())
+    async with app.router.lifespan_context(app):
+        assert app.state.pool is pool
+    assert not pool.closed
+
+
+async def test_trust_injected_pool_skips_check() -> None:
+    pool = FakePool(FakeConn(row(s=True)))
+    app = create_app(make_settings("prod"), pool=pool, redis=FakeRedis(), trust_injected_pool=True)
+    async with app.router.lifespan_context(app):
+        assert app.state.pool is pool
+
+
+async def test_injected_pool_check_honours_dev_flag_only_in_dev() -> None:
+    dev = create_app(
+        make_settings("dev", allow_unsafe_db_role=True),
+        pool=FakePool(FakeConn(row(s=True))),
+        redis=FakeRedis(),
+    )
+    async with dev.router.lifespan_context(dev):
+        pass
+    settings = make_settings("staging").model_copy(update={"allow_unsafe_db_role": True})
+    other = create_app(settings, pool=FakePool(FakeConn(row(s=True))), redis=FakeRedis())
+    with pytest.raises(RuntimeError, match="superuser"):
+        async with other.router.lifespan_context(other):
+            pass
+
+
+async def test_created_pool_still_role_checked_and_closed_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = FakePool(FakeConn(row(s=True)))
+    patch_pool(monkeypatch, pool)
+    app = create_app(make_settings("prod"), redis=FakeRedis())
+    with pytest.raises(RuntimeError, match="Unsafe database role"):
+        async with app.router.lifespan_context(app):
+            pass
+    assert pool.closed
