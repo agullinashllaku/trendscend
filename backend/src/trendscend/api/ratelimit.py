@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -101,6 +102,26 @@ def client_ip(scope: Scope, trusted_proxies: frozenset[str]) -> str:
     return peer_s
 
 
+_KEY_MAX_LEN = 64
+_UNSAFE_KEY_CHARS = re.compile(r"[^0-9A-Za-z.:_/-]")
+
+
+def rate_limit_key(ip: str) -> str:
+    """Bucket key for a client address from ``client_ip``.
+
+    IPv4 is kept as is; IPv6 collapses to its /64 (an attacker with a routed
+    /64 owns 2**64 addresses, so per-address buckets are bypassable and grow
+    the Redis keyspace). Anything unparseable is truncated and sanitised.
+    """
+    parsed = None if "%" in ip else _parse_ip(ip)
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return str(parsed)
+    if isinstance(parsed, ipaddress.IPv6Address):
+        net = ipaddress.ip_network(f"{parsed}/64", strict=False)
+        return f"{net.network_address}/64"
+    return _UNSAFE_KEY_CHARS.sub("_", ip[:_KEY_MAX_LEN])
+
+
 @dataclass(frozen=True)
 class RateLimitResult:
     allowed: bool
@@ -152,7 +173,9 @@ class RateLimitMiddleware:
             settings = state.settings
             ip = client_ip(scope, settings.trusted_proxies)
             limiter = RateLimiter(state.redis, settings.rate_limit_per_minute)
-            result = await asyncio.wait_for(limiter.hit(ip), timeout=LIMITER_TIMEOUT_S)
+            result = await asyncio.wait_for(
+                limiter.hit(rate_limit_key(ip)), timeout=LIMITER_TIMEOUT_S
+            )
         except Exception:
             # Fail closed. Exception text may embed the Redis DSN: not logged.
             _logger.error("rate limiter unavailable")
