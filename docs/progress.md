@@ -102,7 +102,7 @@
 **Next:** 5b — passkey auth (WebAuthn), sessions, recovery, step-up; carry-over list in PR #8. Phase 5 gate is not yet met (needs 5b–5e).
 
 ## Phase 5a hardening
-**Status:** IN PROGRESS (branch `phase-5a-hardening`; becomes COMPLETE when its PR merges)
+**Status:** COMPLETE (PR #9, merged 2026-10-25; all 5 CI checks green on the first run with the new pins)
 **Gate:** all must-fix post-merge findings (M1, M2, M3, M5, M6, M7, L6, Codex deployment-path P1) fixed; role bootstrap and deployment contract tested end to end; CI hardened. Review: `docs/reviews/phase5a-post-merge-review.md`. Plan: `docs/superpowers/plans/2026-10-24-phase5a-hardening.md`.
 
 | Item | Status |
@@ -116,6 +116,7 @@
 | Safe uvicorn launch options (M7) | ✓ |
 | CI: least-privilege token, `--locked`, SHA/digest pins, Dependabot, pinned uv (M5) | ✓ |
 | Threat-model ownership corrections and open-risk records | ✓ |
-| PR, green CI, post-merge review gates | pending |
+| PR #9 merged, green CI | ✓ |
+| Post-merge review gates (/security-review, security-reviewer, Codex) | in progress, results in `docs/reviews/` |
 
 **Next:** 5b — passkey auth with session-token tenant binding (M4).
