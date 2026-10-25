@@ -100,3 +100,22 @@
 | CI Postgres (TimescaleDB) and Redis services; integration tests cannot be silently skipped in CI | ✓ |
 
 **Next:** 5b — passkey auth (WebAuthn), sessions, recovery, step-up; carry-over list in PR #8. Phase 5 gate is not yet met (needs 5b–5e).
+
+## Phase 5a hardening
+**Status:** IN PROGRESS (branch `phase-5a-hardening`; becomes COMPLETE when its PR merges)
+**Gate:** all must-fix post-merge findings (M1, M2, M3, M5, M6, M7, L6, Codex deployment-path P1) fixed; role bootstrap and deployment contract tested end to end; CI hardened. Review: `docs/reviews/phase5a-post-merge-review.md`. Plan: `docs/superpowers/plans/2026-10-24-phase5a-hardening.md`.
+
+| Item | Status |
+|------|--------|
+| Migration 003: TEMP and TimescaleDB admin/telemetry functions revoked from PUBLIC (M1, M2) | ✓ |
+| Pool reset `DISCARD ALL` + `statement_cache_size=0` (M1) | ✓ |
+| Widened startup role assertion (M3) | ✓ |
+| Injected pools role-checked unless `trust_injected_pool=True` (L6) | ✓ |
+| Role bootstrap (`python -m trendscend.db.bootstrap`) + end-to-end deployment contract test | ✓ |
+| IPv6 rate limiting by /64 (M6) | ✓ |
+| Safe uvicorn launch options (M7) | ✓ |
+| CI: least-privilege token, `--locked`, SHA/digest pins, Dependabot, pinned uv (M5) | ✓ |
+| Threat-model ownership corrections and open-risk records | ✓ |
+| PR, green CI, post-merge review gates | pending |
+
+**Next:** 5b — passkey auth with session-token tenant binding (M4).

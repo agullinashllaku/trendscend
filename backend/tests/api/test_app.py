@@ -60,7 +60,9 @@ class FakePool:
 
 
 def build(env: str = "dev", pool: Any = None) -> Any:
-    app = create_app(make_settings(env), pool=pool or FakePool(), redis=FakeRedis())
+    app = create_app(
+        make_settings(env), pool=pool or FakePool(), redis=FakeRedis(), trust_injected_pool=True
+    )
 
     @app.get("/boom")
     async def boom() -> None:
@@ -209,3 +211,37 @@ def test_settings_do_not_leak_dsn_secrets() -> None:
     for out in (repr(s), str(s), s.model_dump_json(), str(s.model_dump())):
         assert "TOPSECRET" not in out
     assert s.database_url.get_secret_value().endswith("@h/db")
+
+
+async def test_app_lifespan_uses_create_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    order: list[str] = []
+    received: dict[str, Any] = {}
+
+    class P:
+        def acquire(self) -> FakeAcquire:
+            return FakeAcquire(False)
+
+        async def close(self) -> None:
+            order.append("close")
+
+    pool = P()
+
+    async def fake_create_pool(dsn: str, **kw: Any) -> Any:
+        received.update(dsn=dsn, **kw)
+        return pool
+
+    async def fake_assert(conn: Any) -> None:
+        order.append("assert")
+
+    monkeypatch.setattr("trendscend.api.app.create_pool", fake_create_pool)
+    monkeypatch.setattr("trendscend.api.app.assert_safe_db_role", fake_assert)
+    app = create_app(make_settings(), redis=FakeRedis())
+    async with app.router.lifespan_context(app):
+        assert app.state.pool is pool
+        assert order == ["assert"]
+    assert received == {
+        "dsn": "postgresql://u:TOPSECRETDB@h/db",
+        "min_size": 1,
+        "max_size": 10,
+    }
+    assert order == ["assert", "close"]
